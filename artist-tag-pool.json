@@ -1,0 +1,207 @@
+{
+  "format": "cosmos-vision-artist-tag-pool",
+  "version": 1,
+  "name": "收集画师串",
+  "entries": [
+    {
+      "name": "千種みのり，知名画师，有商业连载，色彩清透精致",
+      "text": "@chigusa minori",
+      "enabled": true
+    },
+    {
+      "name": "超知名画师，风格辨识度极高,画师串常客",
+      "text": "@sos adult",
+      "enabled": true
+    },
+    {
+      "name": "P站知名画师，说不上来的好用",
+      "text": "@kobinbin",
+      "enabled": true
+    },
+    {
+      "name": "P站知名画师，说不上来的好用",
+      "text": "@choujiroo",
+      "enabled": true
+    },
+    {
+      "name": "P站知名画师，风格辨识度极高，说不上来的好用",
+      "text": "@sincos",
+      "enabled": true
+    },
+    {
+      "name": "超知名画师，风格辨识度极高，牛头神",
+      "text": "@ratatatat74",
+      "enabled": true
+    },
+    {
+      "name": "佐藤空気，知名画师，恶堕神",
+      "text": "@satou kuuki",
+      "enabled": true
+    },
+    {
+      "name": "袁藤冲人，知名画师，精细华丽，经典过于好看没法冲",
+      "text": "@endou okito",
+      "enabled": true
+    },
+    {
+      "name": "P站知名画师，风格辨识度极高",
+      "text": "@houkisei",
+      "enabled": true
+    },
+    {
+      "name": "P站知名画师，风格辨识度极高，独特服装设计和身材比例",
+      "text": "@dishwasher1910",
+      "enabled": true
+    },
+    {
+      "name": "P站知名画师",
+      "text": "@akkgsyk",
+      "enabled": true
+    },
+    {
+      "name": "米山舞，顶级商业画师",
+      "text": "@yoneyama mai",
+      "enabled": true
+    },
+    {
+      "name": "《鬼刀》作者，数字艺术圈知名",
+      "text": "@wlop",
+      "enabled": true
+    },
+    {
+      "name": "武内崇，Fate 系列原画",
+      "text": "@takeuchi takashi",
+      "enabled": true
+    },
+    {
+      "name": "Helltaker 作者",
+      "text": "@vanripper",
+      "enabled": true
+    },
+    {
+      "name": "望月けい，知名商业画师",
+      "text": "@mochizuki kei",
+      "enabled": true
+    },
+    {
+      "name": "东方同人圈知名",
+      "text": "@ke-ta",
+      "enabled": true
+    },
+    {
+      "name": "成人向精致插画圈知名",
+      "text": "@as109",
+      "enabled": true
+    },
+    {
+      "name": "pixiv 高人气原创系",
+      "text": "@karory",
+      "enabled": true
+    },
+    {
+      "name": "台湾商业插画师，主打轻小说插图",
+      "text": "@hiten",
+      "enabled": true
+    },
+    {
+      "name": "海老ふりゃ，知名画师",
+      "text": "@ebifurya",
+      "enabled": true
+    },
+    {
+      "name": "TYPE-MOON 系",
+      "text": "@koyama hirokazu",
+      "enabled": true
+    },
+    {
+      "name": "新西兰专职插画师，商业资历很硬",
+      "text": "@yueko",
+      "enabled": true
+    },
+    {
+      "name": "国产二游圈画师",
+      "text": "@ciloranko",
+      "enabled": true
+    },
+    {
+      "name": "韩国画师，《鬼灭之刃》同人出圈",
+      "text": "@wanke",
+      "enabled": true
+    },
+    {
+      "name": "碧蓝档案同人画师",
+      "text": "@horuhara",
+      "enabled": true
+    },
+    {
+      "name": "P站知名画师",
+      "text": "@kedama milk",
+      "enabled": true
+    },
+    {
+      "name": "画风神似官方动画的擦边图出圈",
+      "text": "@keihh",
+      "enabled": true
+    },
+    {
+      "name": "明日方舟同人画师",
+      "text": "@mikozin",
+      "enabled": true
+    },
+    {
+      "name": "韩国画师，画过蔚蓝档案官方联动图，清纯与性感兼具风格",
+      "text": "@frengartist",
+      "enabled": true
+    },
+    {
+      "name": "阿戈魔AGM，画师串常客",
+      "text": "@omone hokoma agm",
+      "enabled": true
+    },
+    {
+      "name": "鬼针草，画师串常客",
+      "text": "@chen bin",
+      "enabled": true
+    },
+    {
+      "name": "玉乃井ぺろめくり，知名插画作者",
+      "text": "@tamanoi peromekuri",
+      "enabled": true
+    },
+    {
+      "name": "乌冬达神，知名 3D/2.5D 萝莉动画作者",
+      "text": "@custom udon",
+      "enabled": true
+    },
+    {
+      "name": "XilmO@夕末，中国画师，色彩光影见长",
+      "text": "@xilmo",
+      "enabled": true
+    },
+    {
+      "name": "REM，韩国画师，明日方舟同人，偏乙女向",
+      "text": "@remsrar",
+      "enabled": true
+    },
+    {
+      "name": "二游同人画师",
+      "text": "@misyune",
+      "enabled": true
+    },
+    {
+      "name": "主攻黑白水墨风",
+      "text": "@okazu",
+      "enabled": true
+    },
+    {
+      "name": "韩国同人画师",
+      "text": "@channel_",
+      "enabled": true
+    },
+    {
+      "name": "AI 圈\"カズ少女\"风格串的常客，和 ciloranko、chen_bin 一起用",
+      "text": "@ningen mame",
+      "enabled": true
+    }
+  ]
+}

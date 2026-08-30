@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createArtistTagEntry, createArtistTagPoolSettings } from '@/constants/artist-tag';
+import {
+  ARTIST_TAG_IMPORT_FORMAT,
+  ARTIST_TAG_IMPORT_VERSION,
+  parseArtistTagImportText,
+} from '@/services/image-prompt/artist-tag-import';
 import { pickRandomArtistTag, prependArtistTag } from '@/services/image-prompt/artist-tag-pool';
 
 /**
@@ -102,5 +107,81 @@ describe('prependArtistTag', () => {
 
   it('returns empty string when both sides are empty', () => {
     expect(prependArtistTag('', '')).toBe('');
+  });
+});
+
+describe('parseArtistTagImportText', () => {
+  it('parses valid JSON entries and generates names from artist IDs', () => {
+    const preview = parseArtistTagImportText(
+      JSON.stringify({
+        format: ARTIST_TAG_IMPORT_FORMAT,
+        version: ARTIST_TAG_IMPORT_VERSION,
+        name: '测试画师包',
+        entries: [
+          { text: '  @wlop  ' },
+          { name: '组合画师', text: '@wlop, @ciloranko', enabled: false },
+        ],
+      }),
+    );
+
+    expect(preview.packageName).toBe('测试画师包');
+    expect(preview.entries).toEqual([
+      { name: 'wlop', text: '@wlop', enabled: true },
+      { name: '组合画师', text: '@wlop, @ciloranko', enabled: false },
+    ]);
+    expect(preview.invalidCount).toBe(0);
+    expect(preview.duplicateCount).toBe(0);
+    expect(preview.warnings).toEqual([]);
+  });
+
+  it('accepts a UTF-8 BOM', () => {
+    const source = JSON.stringify({
+      format: ARTIST_TAG_IMPORT_FORMAT,
+      version: ARTIST_TAG_IMPORT_VERSION,
+      entries: [{ text: '@wlop' }],
+    });
+    const preview = parseArtistTagImportText(`\uFEFF${source}`);
+
+    expect(preview.entries).toHaveLength(1);
+  });
+
+  it('rejects unsupported formats and versions', () => {
+    expect(() => parseArtistTagImportText('{}')).toThrow('不是有效的画师串 JSON 文件');
+    expect(() =>
+      parseArtistTagImportText(
+        JSON.stringify({ format: ARTIST_TAG_IMPORT_FORMAT, version: 2, entries: [] }),
+      ),
+    ).toThrow('不支持的画师串 JSON 版本：2');
+  });
+
+  it('skips invalid entries and duplicates from the current pool', () => {
+    const currentPool = createPool(true, [{ text: '@wlop' }]);
+    const preview = parseArtistTagImportText(
+      JSON.stringify({
+        format: ARTIST_TAG_IMPORT_FORMAT,
+        version: ARTIST_TAG_IMPORT_VERSION,
+        entries: [
+          { text: '@wlop' },
+          { text: '@WLOP' },
+          { text: '' },
+          { text: '@ciloranko', enabled: 'yes' },
+          { text: '@guweiz' },
+        ],
+      }),
+      currentPool.entries,
+    );
+
+    expect(preview.entries.map(entry => entry.text)).toEqual(['@guweiz']);
+    expect(preview.invalidCount).toBe(2);
+    expect(preview.duplicateCount).toBe(2);
+    expect(preview.warnings).toHaveLength(4);
+  });
+
+  it('throws when no importable entries remain', () => {
+    expect(() =>
+      parseArtistTagImportText(
+        JSON.stringify({ format: ARTIST_TAG_IMPORT_FORMAT, version: ARTIST_TAG_IMPORT_VERSION, entries: [] }),
+      ),
+    ).toThrow('文件中没有可新增的画师串');
   });
 });
