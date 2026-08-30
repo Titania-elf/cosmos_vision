@@ -193,6 +193,7 @@ function countPayloadItems(id: DataPortabilitySectionId, payload: unknown): numb
   if (id === 'novelAIVibeBundle') return countVibeBundle(payload);
   if (id === 'inlineFavoritesBundle' && Array.isArray(payload)) return payload.length;
   if (id === 'imagePromptPresets') return countPromptPresets(payload);
+  if (id === 'artistTagPool') return readArray(toRecord(payload).entries).length;
   return 1;
 }
 
@@ -262,6 +263,7 @@ function createSectionImporters(result: DataImportResult): Record<DataPortabilit
     novelAISecrets: payload => mergeObject(result.settings.novelai, payload, result),
     comfyUISettings: payload => mergeObject(result.settings.comfyui, payload, result),
     imagePromptPresets: payload => importImagePromptPresets(result.settings, payload, result),
+    artistTagPool: payload => mergeObject(result.settings.artistTagPool, payload, result),
     novelAIVibeBundle: payload => importNovelAIVibeBundle(result.settings, payload, result),
     promptLlmSettings: payload => mergeObject(result.settings.promptLlm, payload, result),
     promptLlmMessagePresets: payload => importPromptLlmMessagePresets(result.settings, payload, result),

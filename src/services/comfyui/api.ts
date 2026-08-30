@@ -1,5 +1,6 @@
 import { uuidv4 } from '@sillytavern/scripts/utils';
 
+import type { ArtistTagPoolSettings } from '@/constants/artist-tag';
 import type { ComfyUISettings } from '@/constants/comfyui';
 import type { ImagePromptPresetSettings } from '@/constants/image-prompt';
 import {
@@ -50,6 +51,7 @@ export interface ComfyUIRequestOptions {
  * @param settings ComfyUI 设置
  * @param presetSettings 共享生图提示词预设
  * @param prompts 正负提示词覆写
+ * @param artistTagPool 画师串池
  * @param options 请求控制选项
  * @returns 指定输出节点的全部图片 Blob，按返回顺序
  */
@@ -57,11 +59,12 @@ export async function generateComfyUIImages(
   settings: ComfyUISettings,
   presetSettings: ImagePromptPresetSettings,
   prompts: ImagePromptPair,
+  artistTagPool?: ArtistTagPoolSettings,
   options: ComfyUIRequestOptions = {},
 ): Promise<Blob[]> {
   return generateComfyUIImagesFromResolvedRequest(
     settings,
-    buildComfyUIResolvedRequest(settings, presetSettings, prompts),
+    buildComfyUIResolvedRequest(settings, presetSettings, prompts, artistTagPool),
     options,
   );
 }
@@ -130,6 +133,7 @@ export async function generateComfyUIImagesFromResolvedRequest(
  * @param settings ComfyUI 设置
  * @param presetSettings 共享生图提示词预设
  * @param prompts 正负提示词
+ * @param artistTagPool 画师串池
  * @param options 请求控制选项
  * @returns 第一张图片 Blob
  */
@@ -137,9 +141,10 @@ export async function generateComfyUIImage(
   settings: ComfyUISettings,
   presetSettings: ImagePromptPresetSettings,
   prompts: ImagePromptPair,
+  artistTagPool?: ArtistTagPoolSettings,
   options: ComfyUIRequestOptions = {},
 ): Promise<Blob> {
-  const blobs = await generateComfyUIImages(settings, presetSettings, prompts, options);
+  const blobs = await generateComfyUIImages(settings, presetSettings, prompts, artistTagPool, options);
   return requireFirstBlob(blobs);
 }
 

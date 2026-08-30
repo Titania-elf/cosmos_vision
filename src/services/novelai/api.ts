@@ -1,3 +1,4 @@
+import type { ArtistTagPoolSettings } from '@/constants/artist-tag';
 import type { ImagePromptPresetSettings } from '@/constants/image-prompt';
 import type {
   NovelAIAccount,
@@ -14,6 +15,7 @@ import {
   buildPositivePrompt,
 } from './prompt-presets';
 import type { PromptLlmExtractSettings, PromptLlmOutput } from '@/services/tavern-helper/prompt-llm';
+import { pickRandomArtistTag } from '@/services/image-prompt/artist-tag-pool';
 import { extractNovelAIJsonImages } from './response-images';
 import { extractImages } from './zip';
 import { getNovelAIRequestAccounts } from './router';
@@ -174,6 +176,7 @@ async function requestImagesWithAccount(
  * @param imagePromptPresets 共享生图提示词预设
  * @param extractSettings Prompt LLM 正则提取规则
  * @param overrides 临时提示词与模式覆盖
+ * @param artistTagPool 画师串池
  * @returns 最终提示词与日志快照
  */
 export function buildNovelAIResolvedRequest(
@@ -181,8 +184,9 @@ export function buildNovelAIResolvedRequest(
   imagePromptPresets: ImagePromptPresetSettings,
   extractSettings: PromptLlmExtractSettings,
   overrides?: NovelAIPromptOverrides,
+  artistTagPool?: ArtistTagPoolSettings,
 ): NovelAIResolvedRequest {
-  const prompts = resolveFinalPrompts(settings, imagePromptPresets, extractSettings, overrides);
+  const prompts = resolveFinalPrompts(settings, imagePromptPresets, extractSettings, overrides, artistTagPool);
   return createResolvedRequest(settings, prompts);
 }
 
@@ -289,6 +293,7 @@ function buildHeaders(apiKey: string): HeadersInit {
  * @param imagePromptPresets 共享生图提示词预设
  * @param extractSettings Prompt LLM 正则提取规则
  * @param overrides LLM 生成的临时提示词
+ * @param artistTagPool 画师串池
  * @returns 正负提示词
  */
 function resolveFinalPrompts(
@@ -296,14 +301,18 @@ function resolveFinalPrompts(
   imagePromptPresets: ImagePromptPresetSettings,
   extractSettings: PromptLlmExtractSettings,
   overrides?: NovelAIPromptOverrides,
+  artistTagPool?: ArtistTagPoolSettings,
 ): NovelAIFinalPrompts {
   const characterPrompts = overrides?.characterPrompts ?? [];
+  // 每次请求只抽一次画师串,避免正负提示词与快照之间取值不一致
+  const artistTag = pickRandomArtistTag(artistTagPool);
   const positivePrompt = buildPositivePrompt(
     settings,
     imagePromptPresets,
     extractSettings,
     overrides?.positiveLLMPrompt ?? '',
     overrides?.positivePromptMode ?? 'extract',
+    artistTag,
   );
   const isV5 = isNovelAIV5Model(settings.model);
   return {

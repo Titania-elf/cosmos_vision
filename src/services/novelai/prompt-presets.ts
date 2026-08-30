@@ -2,6 +2,7 @@ import type { ImagePromptPair } from '@/services/image-prompt/presets';
 import type { ImagePromptPresetSettings } from '@/constants/image-prompt';
 import type { NovelAIModel, NovelAIQualityPreset, NovelAISettings, NovelAIUcPreset } from '@/constants/novelai';
 import { isNovelAIV3Model } from '@/constants/novelai';
+import { prependArtistTag } from '@/services/image-prompt/artist-tag-pool';
 import { resolveImagePromptPreset, getImagePromptPreset } from '@/services/image-prompt/presets';
 import {
   resolvePromptLlmSource,
@@ -166,6 +167,7 @@ export type NovelAIPromptMode = PromptLlmPromptMode;
  * @param extractSettings Prompt LLM 正则提取规则
  * @param llmPrompt LLM 正向提示词
  * @param mode 提取模式
+ * @param artistTag 本次抽中的画师串,前置在最前面
  * @returns 最终发送给官方 API 的 input
  */
 export function buildPositivePrompt(
@@ -174,12 +176,13 @@ export function buildPositivePrompt(
   extractSettings: PromptLlmExtractSettings,
   llmPrompt = '',
   mode: NovelAIPromptMode = 'extract',
+  artistTag = '',
 ): string {
   const prompt = resolvePromptLlmSource(llmPrompt, mode, extractSettings, 'positive');
   const preset = getImagePromptPreset(presetSettings.positive, settings.positivePromptPresetId);
   const custom = resolveImagePromptPreset(preset, prompt);
   const qualityTags = getQualityPresetPrompt(settings.model, settings.qualityPreset);
-  return [custom, qualityTags].filter(Boolean).join(', ');
+  return prependArtistTag([custom, qualityTags].filter(Boolean).join(', '), artistTag);
 }
 
 /**

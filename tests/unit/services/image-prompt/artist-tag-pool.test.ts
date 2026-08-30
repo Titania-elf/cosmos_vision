@@ -1,0 +1,106 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createArtistTagEntry, createArtistTagPoolSettings } from '@/constants/artist-tag';
+import { pickRandomArtistTag, prependArtistTag } from '@/services/image-prompt/artist-tag-pool';
+
+/**
+ * 构建测试用画师串池
+ * @param enabled 总开关
+ * @param entries 条目定义
+ * @returns 画师串池设置
+ */
+function createPool(enabled: boolean, entries: Array<{ text: string; entryEnabled?: boolean }>) {
+  return {
+    ...createArtistTagPoolSettings(),
+    enabled,
+    entries: entries.map((entry, index) => ({
+      ...createArtistTagEntry(`entry-${index}`, `画师串 ${index}`, entry.text),
+      enabled: entry.entryEnabled ?? true,
+    })),
+  };
+}
+
+describe('pickRandomArtistTag', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns empty string when pool is undefined', () => {
+    expect(pickRandomArtistTag(undefined)).toBe('');
+  });
+
+  it('returns empty string when master switch is off', () => {
+    const pool = createPool(false, [{ text: 'artist:wlop' }]);
+    expect(pickRandomArtistTag(pool)).toBe('');
+  });
+
+  it('returns empty string when pool has no entries', () => {
+    expect(pickRandomArtistTag(createArtistTagPoolSettings())).toBe('');
+    expect(pickRandomArtistTag({ enabled: true, entries: [] })).toBe('');
+  });
+
+  it('returns empty string when every entry is disabled', () => {
+    const pool = createPool(true, [
+      { text: 'artist:wlop', entryEnabled: false },
+      { text: 'artist:ciloranko', entryEnabled: false },
+    ]);
+    expect(pickRandomArtistTag(pool)).toBe('');
+  });
+
+  it('returns empty string when every enabled entry is blank', () => {
+    const pool = createPool(true, [{ text: '   ' }, { text: '' }]);
+    expect(pickRandomArtistTag(pool)).toBe('');
+  });
+
+  it('always returns the only enabled entry', () => {
+    const pool = createPool(true, [
+      { text: 'artist:wlop', entryEnabled: false },
+      { text: 'artist:ciloranko' },
+      { text: '   ' },
+    ]);
+    for (let i = 0; i < 20; i += 1) {
+      expect(pickRandomArtistTag(pool)).toBe('artist:ciloranko');
+    }
+  });
+
+  it('picks by index over candidates filtered from disabled and blank entries', () => {
+    const pool = createPool(true, [
+      { text: 'artist:skipped', entryEnabled: false },
+      { text: 'artist:first' },
+      { text: '  ', entryEnabled: true },
+      { text: 'artist:second' },
+    ]);
+
+    const random = vi.spyOn(Math, 'random');
+
+    random.mockReturnValue(0);
+    expect(pickRandomArtistTag(pool)).toBe('artist:first');
+
+    random.mockReturnValue(0.99);
+    expect(pickRandomArtistTag(pool)).toBe('artist:second');
+  });
+
+  it('trims the picked entry text', () => {
+    const pool = createPool(true, [{ text: '  artist:wlop, artist:guweiz  ' }]);
+    expect(pickRandomArtistTag(pool)).toBe('artist:wlop, artist:guweiz');
+  });
+});
+
+describe('prependArtistTag', () => {
+  it('prepends the artist tag in front of the positive prompt', () => {
+    expect(prependArtistTag('masterpiece, 1girl', 'artist:wlop')).toBe('artist:wlop, masterpiece, 1girl');
+  });
+
+  it('leaves the prompt untouched when the artist tag is empty', () => {
+    expect(prependArtistTag('masterpiece, 1girl', '')).toBe('masterpiece, 1girl');
+    expect(prependArtistTag('masterpiece, 1girl', '   ')).toBe('masterpiece, 1girl');
+  });
+
+  it('returns only the artist tag when the prompt is empty', () => {
+    expect(prependArtistTag('', 'artist:wlop')).toBe('artist:wlop');
+    expect(prependArtistTag('  ', 'artist:wlop')).toBe('artist:wlop');
+  });
+
+  it('returns empty string when both sides are empty', () => {
+    expect(prependArtistTag('', '')).toBe('');
+  });
+});

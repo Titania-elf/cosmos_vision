@@ -1,3 +1,4 @@
+import type { ArtistTagPoolSettings } from '@/constants/artist-tag';
 import type { ComfyUISettings, ImageSource } from '@/constants/comfyui';
 import type { ImagePromptPresetReferences, ImagePromptPresetSettings } from '@/constants/image-prompt';
 import type { NovelAIVibePresetSettings } from '@/constants/novelai-vibe';
@@ -257,6 +258,7 @@ export interface CosmosVisionSettings {
   temporaryImageLimit: number;
   imageSource: ImageSource;
   imagePromptPresets: ImagePromptPresetSettings;
+  artistTagPool: ArtistTagPoolSettings;
   novelai: NovelAISettings;
   comfyui: ComfyUISettings;
   promptLlm: PromptLlmSettings;

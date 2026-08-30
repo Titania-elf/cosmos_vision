@@ -399,10 +399,15 @@ function markAborted(): void {
  * @returns 已解析的 ComfyUI 请求
  */
 function runDirectModeTest(): ComfyUIResolvedRequest {
-  return buildComfyUIResolvedRequest(settings.comfyui, settings.imagePromptPresets, {
-    positivePrompt: directPositivePrompt.value,
-    negativePrompt: directNegativePrompt.value,
-  });
+  return buildComfyUIResolvedRequest(
+    settings.comfyui,
+    settings.imagePromptPresets,
+    {
+      positivePrompt: directPositivePrompt.value,
+      negativePrompt: directNegativePrompt.value,
+    },
+    settings.artistTagPool,
+  );
 }
 
 /**
@@ -432,7 +437,7 @@ async function runLlmModeTest(session: TestRequestSession): Promise<ComfyUIResol
 
   llmRawResponse.value = result.rawText;
   const { output } = extractPromptLlmResult(result.rawText, settings.promptLlm, schemaFields);
-  return buildComfyUIResolvedRequest(settings.comfyui, settings.imagePromptPresets, output);
+  return buildComfyUIResolvedRequest(settings.comfyui, settings.imagePromptPresets, output, settings.artistTagPool);
 }
 
 /**

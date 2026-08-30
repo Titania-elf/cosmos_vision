@@ -109,6 +109,7 @@ function createSectionBuilders(
     novelAISecrets: () => ({ accounts: settings.novelai.accounts.map(account => ({ ...account })) }),
     comfyUISettings: () => _.cloneDeep(settings.comfyui),
     imagePromptPresets: () => _.cloneDeep(settings.imagePromptPresets),
+    artistTagPool: () => _.cloneDeep(settings.artistTagPool),
     novelAIVibeBundle: () => buildNovelAIVibeBundle(settings.novelai.novelAIVibePresets.presets),
     promptLlmSettings: () => _.cloneDeep(settings.promptLlm),
     promptLlmMessagePresets: () => _.cloneDeep(settings.promptLlmMessagePresets),

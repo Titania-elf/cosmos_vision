@@ -4,6 +4,7 @@ import defaultPromptLlmPresetSettings, {
   DEFAULT_PROMPT_LLM_HISTORY_MESSAGE_ID,
   DEFAULT_PROMPT_LLM_PARTICIPANT_MESSAGE_ID,
 } from '@/constants/default-prompt-llm-preset';
+import { createArtistTagPoolSettings } from '@/constants/artist-tag';
 import {
   COMFYUI_DEFAULT_TIMEOUT,
   createComfyUILoraPresetSettings,
@@ -116,6 +117,7 @@ export const DEFAULT_SETTINGS: CosmosVisionSettings = {
     DEFAULT_NEGATIVE_PROMPT_PRESET_ID,
     DEFAULT_NEGATIVE_PROMPT_PRESET_NAME,
   ),
+  artistTagPool: createArtistTagPoolSettings(),
   novelai: {
     accounts: [createNovelAIAccount(NOVELAI_DEFAULT_ACCOUNT_ID)],
     routingMode: 'sequential',

@@ -47,6 +47,34 @@ describe('settings store recovery and state management', () => {
     expect(store.settings.comfyui.url).toBe('http://127.0.0.1:8188');
   });
 
+  it('fills in a disabled empty artist tag pool for settings saved before the feature', () => {
+    extensionSettings.cosmos_vision = { imageSource: 'comfyui' };
+
+    const store = useSettingsStore();
+    expect(store.settings.artistTagPool).toEqual({ enabled: false, entries: [] });
+  });
+
+  it('recovers a corrupted artist tag pool to the default instead of dropping all settings', () => {
+    extensionSettings.cosmos_vision = { artistTagPool: { enabled: 'yes', entries: 'not-an-array' } };
+
+    const store = useSettingsStore();
+    expect(store.settings.artistTagPool).toEqual({ enabled: false, entries: [] });
+  });
+
+  it('keeps a valid artist tag pool loaded from persistence', () => {
+    extensionSettings.cosmos_vision = {
+      artistTagPool: {
+        enabled: true,
+        entries: [{ id: 'a', name: '厚涂系', text: 'artist:wlop', enabled: true }],
+      },
+    };
+
+    const store = useSettingsStore();
+    expect(store.settings.artistTagPool.enabled).toBe(true);
+    expect(store.settings.artistTagPool.entries).toHaveLength(1);
+    expect(store.settings.artistTagPool.entries[0].text).toBe('artist:wlop');
+  });
+
   it('migrates legacy single-account prompt llm settings on load', () => {
     extensionSettings.cosmos_vision = {
       promptLlm: {

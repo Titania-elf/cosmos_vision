@@ -1,5 +1,7 @@
+import type { ArtistTagPoolSettings } from '@/constants/artist-tag';
 import type { ComfyUISettings } from '@/constants/comfyui';
 import type { ImagePromptPresetSettings } from '@/constants/image-prompt';
+import { pickRandomArtistTag, prependArtistTag } from '@/services/image-prompt/artist-tag-pool';
 import { buildImagePromptPair, type ImagePromptPair } from '@/services/image-prompt/presets';
 import { readLoraSnapshotsFromWorkflow } from '@/services/comfyui/lora-adapter';
 import {
@@ -26,14 +28,19 @@ import type {
  * @param settings ComfyUI 设置
  * @param presetSettings 共享生图提示词预设
  * @param prompts 正负提示词覆写
+ * @param artistTagPool 画师串池
  * @returns 可直接发送的工作流与快照
  */
 export function buildComfyUIResolvedRequest(
   settings: ComfyUISettings,
   presetSettings: ImagePromptPresetSettings,
   prompts: ImagePromptPair,
+  artistTagPool?: ArtistTagPoolSettings,
 ): ComfyUIResolvedRequest {
-  return buildComfyUIResolvedRequestFromPrompts(settings, buildImagePromptPair(presetSettings, settings, prompts));
+  const pair = buildImagePromptPair(presetSettings, settings, prompts);
+  // 每次请求只抽一次画师串,前置到正向提示词最前面
+  const positivePrompt = prependArtistTag(pair.positivePrompt, pickRandomArtistTag(artistTagPool));
+  return buildComfyUIResolvedRequestFromPrompts(settings, { ...pair, positivePrompt });
 }
 
 /**

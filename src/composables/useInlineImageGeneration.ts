@@ -722,6 +722,7 @@ export function useInlineImageGeneration(
       settings.imagePromptPresets,
       settings.promptLlm,
       overrides,
+      settings.artistTagPool,
     );
     const temporarySourceHashes = collectTemporaryVibeSourceHashes(request.prompts.vibeReferences);
     return runImageStep(
@@ -769,7 +770,12 @@ export function useInlineImageGeneration(
     onSnapshotResolved?: (snapshot: InlinePromptSnapshot) => void,
   ): Promise<InlineGenerationBatchResult> {
     const { output } = await generateRuntimePrompt(context, session, 'comfyui');
-    const request = buildComfyUIResolvedRequest(settings.comfyui, settings.imagePromptPresets, output);
+    const request = buildComfyUIResolvedRequest(
+      settings.comfyui,
+      settings.imagePromptPresets,
+      output,
+      settings.artistTagPool,
+    );
     return runImageStep(
       session,
       createComfyUISnapshot(request.snapshot),

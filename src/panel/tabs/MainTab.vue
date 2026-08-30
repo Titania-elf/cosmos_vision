@@ -27,6 +27,8 @@
         </label>
       </div>
 
+      <ArtistTagPoolPanel />
+
       <h2 class="cv-section-title flex items-center justify-between">
         <span>关于插件</span>
         <span class="inline-flex items-center gap-(--cv-space-lg)">
@@ -100,6 +102,7 @@
 import { computed, inject, ref, watch } from 'vue';
 import { appendGeneratedSessionItem, removeSessionItemsByIds } from '@/composables/inlineGallerySession';
 import { IMAGE_SOURCES } from '@/constants/comfyui';
+import ArtistTagPoolPanel from '@/panel/components/ArtistTagPoolPanel.vue';
 import DataPortabilityPanel from '@/panel/components/DataPortabilityPanel.vue';
 import InlineFavoriteDataPanel from '@/panel/components/InlineFavoriteDataPanel.vue';
 import NovelAIVibeDataPanel from '@/panel/components/NovelAIVibeDataPanel.vue';

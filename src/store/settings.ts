@@ -127,6 +127,19 @@ const imagePromptPresetSettingsSchema = z.object({
   negative: z.array(imagePromptPresetSchema).min(1),
 });
 
+const artistTagEntrySchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  text: z.string(),
+  enabled: z.boolean(),
+});
+
+/** 画师串池允许为空，故 entries 不加 min(1) */
+const artistTagPoolSettingsSchema = z.object({
+  enabled: z.boolean(),
+  entries: z.array(artistTagEntrySchema),
+});
+
 const novelAIVibePresetSchema = z.object({
   id: z.string().min(1),
   name: z.string().default(DEFAULT_PRESET_NAME),
@@ -250,6 +263,7 @@ const cosmosVisionSettingsSchema = z.object({
   temporaryImageLimit: z.number().int().positive(),
   imageSource: imageSourceSchema,
   imagePromptPresets: imagePromptPresetSettingsSchema,
+  artistTagPool: artistTagPoolSettingsSchema,
   novelai: novelAISettingsSchema,
   comfyui: comfyUISettingsSchema,
   promptLlm: promptLlmSettingsSchema,
@@ -380,6 +394,7 @@ function recoverSettings(value: unknown): CosmosVisionSettings {
     ),
     imageSource: parseField(imageSourceSchema, record.imageSource, DEFAULT_SETTINGS.imageSource),
     imagePromptPresets: recoverImagePromptPresets(record.imagePromptPresets),
+    artistTagPool: parseField(artistTagPoolSettingsSchema, record.artistTagPool, DEFAULT_SETTINGS.artistTagPool),
     novelai: recoverNovelAISettings(record.novelai),
     comfyui: parseField(comfyUISettingsSchema, record.comfyui, DEFAULT_SETTINGS.comfyui),
     promptLlm: recoverPromptLlmSettings(record.promptLlm),

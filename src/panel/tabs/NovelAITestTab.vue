@@ -536,6 +536,7 @@ async function runNovelAIWithOverrides(overrides: NovelAIPromptOverrides, sessio
     settings.imagePromptPresets,
     settings.promptLlm,
     overrides,
+    settings.artistTagPool,
   );
   novelaiSnapshot.value = request.snapshot;
   const result = await generateNovelAIImagesFromResolvedRequest(request, settings.novelai.imageCount, {
