@@ -111,6 +111,9 @@
                     :src="getPreviewUrl(item.key)"
                     :snapshot="item.promptSnapshot"
                     :download-action="() => $emit('download-items', [item.key])"
+                    :gallery="galleryEntries"
+                    :gallery-index="galleryIndexOf(item.key)"
+                    :on-gallery-close="releaseLightboxGallery"
                     :disabled="isSelecting"
                     alt="图片预览"
                     class="block size-full object-cover"
@@ -246,6 +249,7 @@ import Popover from 'primevue/popover';
 import Select from 'primevue/select';
 import Skeleton from 'primevue/skeleton';
 import { computed, ref, watch } from 'vue';
+import type { InlineLightboxGalleryEntry } from '@/composables/inlineImageLightbox';
 import { useManagedImagePreviews } from '@/composables/useManagedImagePreviews';
 import { useVirtualCardGrid } from '@/composables/useVirtualCardGrid';
 import CvDataCard from '@/panel/components/CvDataCard.vue';
@@ -254,6 +258,7 @@ import LightboxImage from '@/panel/components/LightboxImage.vue';
 import { MACRO_POPOVER_BASE_Z_INDEX, type MacroPopoverInstance } from '@/panel/components/prompt-llm-macro-popover';
 import StaticPanel from '@/panel/components/StaticPanel.vue';
 import {
+  loadImageBlob,
   managedChatGroupId,
   type ManagedImageItem,
   type ManagedImageKind,
@@ -445,6 +450,49 @@ function setCardMenuPopover(key: string, el: unknown): void {
  */
 function getPreviewUrl(key: string): string {
   return previewUrls.value[key] ?? '';
+}
+
+/** 灯箱画廊按需创建的 object URL（打开期间缓存，关闭时统一回收） */
+const lightboxOwnedUrls = new Map<string, string>();
+
+/** 灯箱画廊条目：随筛选列表联动，大图左右切换按当前排序浏览 */
+const galleryEntries = computed<InlineLightboxGalleryEntry[]>(() =>
+  visibleItems.value.map(item => ({
+    src: () => resolveLightboxEntrySrc(item),
+    snapshot: item.promptSnapshot,
+    actions: { onDownload: () => emit('download-items', [item.key]) },
+  })),
+);
+
+/** key → 画廊序号（每张卡片点开时定位自身） */
+const galleryIndexByKey = computed(() => new Map(visibleItems.value.map((item, index) => [item.key, index])));
+
+/**
+ * 读取图片在灯箱画廊中的序号
+ * @param key 复合 key
+ */
+function galleryIndexOf(key: string): number {
+  return galleryIndexByKey.value.get(key) ?? 0;
+}
+
+/**
+ * 解析灯箱画廊条目图片地址：优先复用可见缩略图 URL，其次按需加载 Blob
+ * @param item 管理项
+ */
+async function resolveLightboxEntrySrc(item: ManagedImageItem): Promise<string> {
+  const preview = previewUrls.value[item.key];
+  if (preview) return preview;
+  const owned = lightboxOwnedUrls.get(item.key);
+  if (owned) return owned;
+  const url = URL.createObjectURL(await loadImageBlob(item));
+  lightboxOwnedUrls.set(item.key, url);
+  return url;
+}
+
+/** 回收灯箱画廊按需创建的全部 object URL */
+function releaseLightboxGallery(): void {
+  lightboxOwnedUrls.forEach(url => URL.revokeObjectURL(url));
+  lightboxOwnedUrls.clear();
 }
 
 /**

@@ -69,6 +69,51 @@
   transform: rotate(90deg);
 }
 
+/* 画廊序号计数 */
+.cv-lightbox-counter {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 画廊左右切换按钮 */
+.cv-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100002;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-size: 1.25rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cv-lightbox-nav:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.cv-lightbox-nav:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.cv-lightbox-nav-prev {
+  left: max(1.25rem, env(safe-area-inset-left));
+}
+
+.cv-lightbox-nav-next {
+  right: max(1.25rem, env(safe-area-inset-right));
+}
+
 .cv-lightbox-wrapper {
   @apply flex h-full w-full flex-col items-center justify-center;
   position: relative;
@@ -95,6 +140,12 @@
   border-radius: 12px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
   object-fit: contain;
+  transition: opacity 0.15s ease;
+}
+
+/* 画廊切换加载中：当前图半透明过渡 */
+.cv-lightbox-img-box.cv-lightbox-img-loading .cv-lightbox-preview-img {
+  opacity: 0.4;
 }
 
 .cv-lightbox-info {
@@ -400,6 +451,20 @@
     height: 100%;
     max-height: 100%;
     max-width: 100%;
+  }
+
+  .cv-lightbox-nav {
+    width: 2.25rem;
+    height: 2.25rem;
+    font-size: 1rem;
+  }
+
+  .cv-lightbox-nav-prev {
+    left: 0.5rem;
+  }
+
+  .cv-lightbox-nav-next {
+    right: 0.5rem;
   }
 
   .cv-lightbox-img-box img {

@@ -865,6 +865,15 @@ body.dark .cv-inline-toolbar {
   white-space: pre-wrap;
 }
 
+/* running 态实时计时 */
+.cv-inline-generation-timer {
+  flex: 0 0 auto;
+  font-size: var(--cv-font-size-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  opacity: 0.85;
+}
+
 /* error 态含重试按钮时的横向排列 */
 .cv-inline-generation-error-row {
   display: flex;

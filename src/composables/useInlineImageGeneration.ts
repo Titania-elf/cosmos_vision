@@ -670,6 +670,8 @@ export function useInlineImageGeneration(
   ): Promise<InlineGenerationBatchResult> {
     onSnapshotResolved?.(retrySnapshot);
     session.status.setStatus('正在生成图片...');
+    // 归零实时计时,与统计面板记录的图像请求阶段耗时口径一致
+    session.status.resetTimer();
     return statsStore.recordGeneration(source, session.controller.signal, task);
   }
 
@@ -707,6 +709,8 @@ export function useInlineImageGeneration(
     session: InlineGenerationSession,
   ): Promise<InlineGenerationBatchResult> {
     session.status.setStatus('正在生成图片...');
+    // 快照重试路径同样归零实时计时,保持与统计口径一致
+    session.status.resetTimer();
     // 快照路径(重试复用)同样计入耗时统计,图像源与请求内保持一致
     const source = snapshot.imageSource ?? settings.imageSource;
     return statsStore.recordGeneration(

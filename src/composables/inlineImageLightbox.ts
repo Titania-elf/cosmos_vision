@@ -20,6 +20,41 @@ export interface InlineLightboxActions {
   onDownload?: () => void | Promise<void>;
 }
 
+/** 灯箱画廊单张条目（数据管理面板左右切换用） */
+export interface InlineLightboxGalleryEntry {
+  /** 图片地址；传函数时切换到该条目才解析（按需加载 Blob） */
+  src: string | (() => string | Promise<string>);
+  snapshot?: InlinePromptSnapshot;
+  actions?: InlineLightboxActions;
+}
+
+/** 灯箱画廊配置 */
+export interface InlineLightboxGallery {
+  entries: InlineLightboxGalleryEntry[];
+  /** 初始条目序号 */
+  index?: number;
+}
+
+/** 打开灯箱的完整选项（向后兼容：仅传 onDownload 的旧用法仍有效） */
+export interface InlineLightboxOptions extends InlineLightboxActions {
+  gallery?: InlineLightboxGallery;
+  /** 灯箱关闭回调（画廊持有方在此回收按需创建的 object URL） */
+  onClose?: () => void;
+}
+
+/** 灯箱运行时状态 */
+interface LightboxState {
+  overlay: HTMLElement;
+  /** 画廊条目（非画廊时仅 1 条） */
+  entries: InlineLightboxGalleryEntry[];
+  index: number;
+  /** 是否展示左右切换 UI */
+  isGallery: boolean;
+  /** 导航令牌：快速切换时丢弃过期加载 */
+  navToken: number;
+  close: () => void;
+}
+
 /**
  * 克隆为 IndexedDB 可结构化保存的纯提示词快照
  * @param snapshot 原始提示词快照
@@ -197,56 +232,67 @@ function markCopyButtonSuccess(btn: HTMLElement): void {
 
 /**
  * 创建 Lightbox 的 DOM 结构（挂 body，需自带 cosmos-vision-root + dark class）
- * @param src 图片地址
- * @param snapshot 提示词快照
- * @param actions Lightbox 操作集合
+ * @param src 初始图片地址（画廊首张已解析的地址）
+ * @param isGallery 是否为多图画廊（渲染左右切换与计数）
+ * @param hasDownload 是否有任一条目可下载
  * @returns Lightbox 根元素
  */
-function createLightboxDOM(src: string, snapshot?: InlinePromptSnapshot, actions?: InlineLightboxActions): HTMLElement {
+function createLightboxDOM(src: string, isGallery: boolean, hasDownload: boolean): HTMLElement {
   const overlay = document.createElement('div');
   overlay.className = buildInlineActionHostClass('cv-lightbox-overlay', useSettingsStore().darkMode);
-  overlay.innerHTML = buildLightboxMarkup(src, snapshot, actions);
+  overlay.innerHTML = buildLightboxMarkup(src, isGallery, hasDownload);
   return overlay;
 }
 
 /**
  * 构建 Lightbox HTML
- * @param src 图片地址
- * @param snapshot 提示词快照
+ * 提示词详情面板留空，由 renderLightboxInfo 按当前条目填充（画廊切换时整体重建）
+ * @param src 初始图片地址
+ * @param isGallery 是否为多图画廊
+ * @param hasDownload 是否有任一条目可下载
  * @returns HTML 字符串
  */
-function buildLightboxMarkup(src: string, snapshot?: InlinePromptSnapshot, actions?: InlineLightboxActions): string {
+function buildLightboxMarkup(src: string, isGallery: boolean, hasDownload: boolean): string {
   return `
-    ${buildLightboxToolbarMarkup(actions)}
+    ${buildLightboxToolbarMarkup(hasDownload, isGallery)}
     <div class="cv-lightbox-wrapper">
+      ${buildLightboxNavMarkup(isGallery)}
       <div class="cv-lightbox-img-box">
         <img class="cv-lightbox-preview-img" src="${escapeHtml(src)}" alt="放大图片" draggable="false" />
       </div>
-      <div class="cv-lightbox-info cv-info-collapsed">
-        ${buildLightboxHeaderMarkup()}
-        <div class="cv-lightbox-info-body">
-          ${buildPromptGroupMarkup('pos', '正向提示词', snapshot?.positivePrompt || '无正向提示词')}
-          ${buildPromptGroupMarkup('neg', '负面提示词', snapshot?.negativePrompt || '无负面提示词')}
-          ${buildCharacterPromptsMarkup(snapshot)}
-        </div>
-      </div>
+      <div class="cv-lightbox-info cv-info-collapsed"></div>
     </div>
   `;
 }
 
 /**
  * 构建 Lightbox 顶部操作栏
- * @param actions Lightbox 操作集合
+ * @param hasDownload 是否渲染下载按钮
+ * @param isGallery 是否渲染序号计数
  * @returns HTML 字符串
  */
-function buildLightboxToolbarMarkup(actions?: InlineLightboxActions): string {
+function buildLightboxToolbarMarkup(hasDownload: boolean, isGallery: boolean): string {
   return `
     <div class="cv-lightbox-toolbar">
-      ${actions?.onDownload
+      ${isGallery ? '<span class="cv-lightbox-counter"></span>' : ''}
+      ${hasDownload
         ? '<button class="cv-lightbox-download" title="下载图片" aria-label="下载图片"><i class="fa-solid fa-download"></i></button>'
         : ''}
       <button class="cv-lightbox-close" title="关闭" aria-label="关闭"><i class="fa-solid fa-xmark"></i></button>
     </div>
+  `;
+}
+
+/**
+ * 构建画廊左右切换按钮 HTML（仅多图时渲染）
+ * @param isGallery 是否为多图画廊
+ * @returns HTML 字符串
+ */
+function buildLightboxNavMarkup(isGallery: boolean): string {
+  if (!isGallery) return '';
+  return `
+    <button type="button" class="cv-lightbox-nav cv-lightbox-nav-prev" title="上一张" aria-label="上一张"><i class="fa-solid fa-chevron-left"></i></button>
+    <button type="button" class="cv-lightbox-nav cv-lightbox-nav-next" title="下一张" aria-label="下一张"><i class="fa-solid fa-chevron-right"></i></button>
   `;
 }
 
@@ -384,45 +430,47 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * 绑定 Lightbox 相关的事件
- * @param overlay Lightbox 根元素
- * @param snapshot 提示词快照
+ * 绑定 Lightbox 相关的事件并渲染初始详情面板
+ * @param state 灯箱状态
  */
-function bindLightboxEvents(overlay: HTMLElement, snapshot?: InlinePromptSnapshot, actions?: InlineLightboxActions): void {
-  const close = () => closeLightbox(overlay, handleEsc);
-  const handleEsc = (e: KeyboardEvent) => e.key === 'Escape' && close();
-  document.addEventListener('keydown', handleEsc);
-  overlay.addEventListener('click', e => handleOverlayClick(e, overlay, close));
-  overlay.querySelector('.cv-lightbox-close')?.addEventListener('click', close);
-  bindLightboxDownload(overlay, actions);
-  bindLightboxToggle(overlay);
-  bindLightboxCopyButtons(overlay, snapshot);
-  bindCharacterItemToggles(overlay);
+function bindLightboxEvents(state: LightboxState): void {
+  const overlay = state.overlay;
+  overlay.addEventListener('click', e => handleOverlayClick(e, overlay, state.close));
+  overlay.querySelector('.cv-lightbox-close')?.addEventListener('click', state.close);
+  bindLightboxDownload(state);
+  if (state.isGallery) {
+    overlay.querySelector('.cv-lightbox-nav-prev')?.addEventListener('click', () => navigateLightbox(state, -1));
+    overlay.querySelector('.cv-lightbox-nav-next')?.addEventListener('click', () => navigateLightbox(state, 1));
+    bindLightboxSwipe(state);
+  }
+  renderLightboxInfo(state);
+  updateLightboxNavUi(state);
 }
 
 /**
  * 绑定 Lightbox 下载按钮
- * @param overlay Lightbox 根元素
- * @param actions Lightbox 操作集合
+ * 点击时读取当前条目的下载动作，切换条目后自动指向新条目
+ * @param state 灯箱状态
  */
-function bindLightboxDownload(overlay: HTMLElement, actions?: InlineLightboxActions): void {
-  if (!actions?.onDownload) return;
-  overlay.querySelector('.cv-lightbox-download')?.addEventListener('click', () => {
-    void Promise.resolve(actions.onDownload?.()).catch(error => {
+function bindLightboxDownload(state: LightboxState): void {
+  const button = state.overlay.querySelector('.cv-lightbox-download');
+  if (!button) return;
+  button.addEventListener('click', () => {
+    void Promise.resolve(state.entries[state.index]?.actions?.onDownload?.()).catch(error => {
       console.error('[CosmosVision] 下载图片失败', error);
     });
   });
+  syncDownloadButton(state);
 }
 
 /**
- * 关闭 Lightbox 并解绑键盘事件
- * @param overlay Lightbox 根元素
- * @param handleEsc ESC 事件处理器
+ * 同步下载按钮可见性与当前条目动作
+ * @param state 灯箱状态
  */
-function closeLightbox(overlay: HTMLElement, handleEsc: (e: KeyboardEvent) => void): void {
-  overlay.classList.remove('cv-lightbox-active');
-  window.setTimeout(() => overlay.remove(), 250);
-  document.removeEventListener('keydown', handleEsc);
+function syncDownloadButton(state: LightboxState): void {
+  const button = state.overlay.querySelector<HTMLElement>('.cv-lightbox-download');
+  if (!button) return;
+  button.style.display = state.entries[state.index]?.actions?.onDownload ? '' : 'none';
 }
 
 /**
@@ -520,18 +568,157 @@ function toggleCharacterItem(item: HTMLElement, toggle: HTMLElement): void {
 
 /**
  * 打开 Lightbox 大图预览弹窗
- * @param src 图片地址
- * @param snapshot 提示词快照
+ * 传入 gallery 时可左右切换浏览多张图片（按钮 / 方向键 / 移动端滑动）
+ * @param src 初始图片地址
+ * @param snapshot 初始提示词快照
+ * @param options 灯箱选项（下载动作 / 画廊 / 关闭回调）
  */
 export function openInlineImageLightbox(
   src: string,
   snapshot?: InlinePromptSnapshot,
-  actions?: InlineLightboxActions,
+  options?: InlineLightboxOptions,
 ): void {
-  const overlay = createLightboxDOM(src, snapshot, actions);
+  const gallery = options?.gallery;
+  const entries: InlineLightboxGalleryEntry[] = gallery?.entries?.length
+    ? gallery.entries
+    : [{ src, snapshot, actions: { onDownload: options?.onDownload } }];
+  const requestedIndex = gallery?.entries?.length ? (gallery.index ?? 0) : 0;
+  const index = Math.min(Math.max(requestedIndex, 0), entries.length - 1);
+  const isGallery = entries.length > 1;
+  const hasDownload = entries.some(entry => entry.actions?.onDownload);
+  const overlay = createLightboxDOM(src, isGallery, hasDownload);
+
+  let closed = false;
+  let handleKey: (e: KeyboardEvent) => void = () => {};
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    overlay.classList.remove('cv-lightbox-active');
+    window.setTimeout(() => overlay.remove(), 250);
+    document.removeEventListener('keydown', handleKey);
+    options?.onClose?.();
+  };
+  const state: LightboxState = { overlay, entries, index, isGallery, navToken: 0, close };
+
+  handleKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      close();
+      return;
+    }
+    if (!isGallery) return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      navigateLightbox(state, -1);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      navigateLightbox(state, 1);
+    }
+  };
+  document.addEventListener('keydown', handleKey);
   document.body.appendChild(overlay);
   requestAnimationFrame(() => {
     overlay.classList.add('cv-lightbox-active');
   });
-  bindLightboxEvents(overlay, snapshot, actions);
+  bindLightboxEvents(state);
+}
+
+/**
+ * 切换画廊条目（越界忽略）
+ * @param state 灯箱状态
+ * @param direction 方向：-1 上一张 / 1 下一张
+ */
+function navigateLightbox(state: LightboxState, direction: -1 | 1): void {
+  const next = state.index + direction;
+  if (next < 0 || next >= state.entries.length) return;
+  void showLightboxEntry(state, next);
+}
+
+/**
+ * 渲染指定画廊条目
+ * 懒解析条目 src；快速连续切换时仅保留最后一次的结果
+ * @param state 灯箱状态
+ * @param index 目标条目序号
+ */
+async function showLightboxEntry(state: LightboxState, index: number): Promise<void> {
+  const entry = state.entries[index];
+  if (!entry || index === state.index) return;
+  state.index = index;
+  const token = ++state.navToken;
+  const img = state.overlay.querySelector<HTMLImageElement>('.cv-lightbox-preview-img');
+  const imgBox = state.overlay.querySelector<HTMLElement>('.cv-lightbox-img-box');
+  imgBox?.classList.add('cv-lightbox-img-loading');
+  updateLightboxNavUi(state);
+  try {
+    const nextSrc = typeof entry.src === 'function' ? await entry.src() : entry.src;
+    if (token !== state.navToken) return;
+    if (img) img.src = nextSrc;
+    renderLightboxInfo(state);
+    syncDownloadButton(state);
+  } catch (error) {
+    if (token === state.navToken) toastr.error('图片加载失败');
+    console.warn('[CosmosVision] 灯箱图片加载失败', error);
+  } finally {
+    if (token === state.navToken) imgBox?.classList.remove('cv-lightbox-img-loading');
+  }
+}
+
+/**
+ * 更新画廊序号计数与切换按钮可用态
+ * @param state 灯箱状态
+ */
+function updateLightboxNavUi(state: LightboxState): void {
+  const counter = state.overlay.querySelector<HTMLElement>('.cv-lightbox-counter');
+  if (counter) counter.textContent = `${state.index + 1} / ${state.entries.length}`;
+  const prev = state.overlay.querySelector<HTMLButtonElement>('.cv-lightbox-nav-prev');
+  const next = state.overlay.querySelector<HTMLButtonElement>('.cv-lightbox-nav-next');
+  if (prev) prev.disabled = state.index <= 0;
+  if (next) next.disabled = state.index >= state.entries.length - 1;
+}
+
+/**
+ * 渲染提示词详情面板（画廊切换时整体重建并回到折叠态）
+ * @param state 灯箱状态
+ */
+function renderLightboxInfo(state: LightboxState): void {
+  const info = state.overlay.querySelector<HTMLElement>('.cv-lightbox-info');
+  if (!info) return;
+  const snapshot = state.entries[state.index]?.snapshot;
+  info.classList.add('cv-info-collapsed');
+  info.innerHTML = `
+    ${buildLightboxHeaderMarkup()}
+    <div class="cv-lightbox-info-body">
+      ${buildPromptGroupMarkup('pos', '正向提示词', snapshot?.positivePrompt || '无正向提示词')}
+      ${buildPromptGroupMarkup('neg', '负面提示词', snapshot?.negativePrompt || '无负面提示词')}
+      ${buildCharacterPromptsMarkup(snapshot)}
+    </div>
+  `;
+  bindLightboxToggle(state.overlay);
+  bindLightboxCopyButtons(state.overlay, snapshot);
+  bindCharacterItemToggles(state.overlay);
+}
+
+/**
+ * 绑定移动端图片左右滑动切换
+ * @param state 灯箱状态
+ */
+function bindLightboxSwipe(state: LightboxState): void {
+  const imgBox = state.overlay.querySelector<HTMLElement>('.cv-lightbox-img-box');
+  if (!imgBox) return;
+  let startX = 0;
+  let startY = 0;
+  imgBox.addEventListener('touchstart', e => {
+    const touch = e.touches[0];
+    if (!touch) return;
+    startX = touch.clientX;
+    startY = touch.clientY;
+  }, { passive: true });
+  imgBox.addEventListener('touchend', e => {
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    const deltaX = touch.clientX - startX;
+    const deltaY = touch.clientY - startY;
+    // 水平位移显著大于纵向才视为切换手势，避免与纵向滚动冲突
+    if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.5) return;
+    navigateLightbox(state, deltaX < 0 ? 1 : -1);
+  }, { passive: true });
 }

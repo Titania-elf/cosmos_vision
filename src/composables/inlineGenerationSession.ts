@@ -18,6 +18,8 @@ export type InlineGenerationStatusMode = 'running' | 'error';
 export interface InlineGenerationStatusHandle {
   host: HTMLElement;
   setStatus: (text: string, mode?: InlineGenerationStatusMode, onRetry?: () => void, rawOutput?: string) => void;
+  /** 归零重新计时（切换到图像请求阶段时调用，使实时计时与统计口径一致） */
+  resetTimer: () => void;
   remove: () => void;
 }
 
@@ -57,6 +59,8 @@ interface InlineGenerationStatusState {
   onRetry?: () => void;
   /** LLM 提取错误的完整原始输出（用于 Accordion 展示） */
   rawOutput?: string;
+  /** 当前阶段已耗时毫秒（running 态实时刷新） */
+  elapsedMs: number;
 }
 
 type InlineGenerationStatusPlacement = 'after' | 'overlay' | 'append';
@@ -64,6 +68,8 @@ type ActiveInlineGenerationSessions = Map<HTMLElement, InlineGenerationSession>;
 type InlineGenerationStatusSlots = Record<string, () => ReturnType<typeof h>>;
 
 const ERROR_REMOVE_DELAY_MS = 8000;
+/** 实时计时刷新间隔（展示到 0.1s） */
+const ELAPSED_TIMER_TICK_MS = 100;
 const MODE_SEVERITY: Record<InlineGenerationStatusMode, 'secondary' | 'error'> = {
   running: 'secondary',
   error: 'error',
@@ -358,6 +364,7 @@ function scheduleStatusRemoval(status: InlineGenerationStatusHandle, delay: numb
 
 /**
  * 创建段落下方的生成状态条
+ * running 态附带实时计时，从状态条创建起开始；进入图像请求阶段可 resetTimer 归零
  * @param options 状态条配置
  * @returns 状态条句柄
  */
@@ -366,13 +373,34 @@ function createInlineGenerationStatus(options: InlineGenerationStatusOptions): I
   host.className = buildStatusClass(options.darkMode);
   preventInlineEventBubbling(host);
   let removed = false;
-  let state: InlineGenerationStatusState = { text: options.initialText, mode: 'running' };
+  let elapsedStart = performance.now();
+  let timerId: number | null = null;
+  let state: InlineGenerationStatusState = { text: options.initialText, mode: 'running', elapsedMs: 0 };
 
   function remove(): void {
     if (removed) return;
     removed = true;
+    stopElapsedTimer();
     render(null, host);
     host.remove();
+  }
+
+  function renderNow(): void {
+    renderStatus(host, state, options, remove);
+  }
+
+  function stopElapsedTimer(): void {
+    if (timerId === null) return;
+    window.clearInterval(timerId);
+    timerId = null;
+  }
+
+  function startElapsedTimer(): void {
+    stopElapsedTimer();
+    timerId = window.setInterval(() => {
+      state = { ...state, elapsedMs: performance.now() - elapsedStart };
+      renderNow();
+    }, ELAPSED_TIMER_TICK_MS);
   }
 
   function setStatus(
@@ -381,12 +409,39 @@ function createInlineGenerationStatus(options: InlineGenerationStatusOptions): I
     onRetry?: () => void,
     rawOutput?: string,
   ): void {
-    state = { text, mode, onRetry, rawOutput };
-    renderStatus(host, state, options, remove);
+    // 仅 running 态保持计时；进入 error 态后冻结并停止刷新
+    if (mode === 'running') {
+      if (timerId === null) startElapsedTimer();
+    } else {
+      stopElapsedTimer();
+    }
+    state = { text, mode, onRetry, rawOutput, elapsedMs: performance.now() - elapsedStart };
+    renderNow();
+  }
+
+  function resetTimer(): void {
+    if (removed) return;
+    elapsedStart = performance.now();
+    state = { ...state, elapsedMs: 0 };
+    if (state.mode === 'running' && timerId === null) startElapsedTimer();
+    renderNow();
   }
 
   setStatus(options.initialText);
-  return { host, setStatus, remove };
+  return { host, setStatus, resetTimer, remove };
+}
+
+/**
+ * 格式化实时耗时文案
+ * @param elapsedMs 已耗时毫秒
+ * @returns 形如 12.3s 或 2m05s 的文案
+ */
+function formatElapsedMs(elapsedMs: number): string {
+  const totalSeconds = elapsedMs / 1000;
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  return `${minutes}m${String(seconds).padStart(2, '0')}s`;
 }
 
 /**
@@ -498,6 +553,9 @@ function buildStatusSlots(
 
       const contentContainer = h('div', { class: 'cv-inline-generation-error-row' }, [
         h('span', { class: 'cv-inline-generation-text' }, state.text),
+        ...(isRunning
+          ? [h('span', { class: 'cv-inline-generation-timer' }, formatElapsedMs(state.elapsedMs))]
+          : []),
         h('span', { class: 'cv-inline-button-row' }, buttons)
       ]);
 

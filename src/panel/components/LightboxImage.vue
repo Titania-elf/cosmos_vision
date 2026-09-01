@@ -15,7 +15,11 @@
 
 <script setup lang="ts">
 import { inject } from 'vue';
-import { openInlineImageLightbox, type InlinePromptSnapshot } from '@/composables/inlineImageLightbox';
+import {
+  openInlineImageLightbox,
+  type InlineLightboxGalleryEntry,
+  type InlinePromptSnapshot,
+} from '@/composables/inlineImageLightbox';
 import {
   IMAGE_DOWNLOAD_OPTIONS_REQUEST_KEY,
   type InlineImageDownloadOptions,
@@ -31,6 +35,12 @@ const props = withDefaults(
     downloadAction?: () => void | Promise<void>;
     downloadBlob?: Blob | null;
     disabled?: boolean;
+    /** 灯箱画廊条目（传入多条时大图可左右切换） */
+    gallery?: InlineLightboxGalleryEntry[];
+    /** 当前图片在画廊中的序号 */
+    galleryIndex?: number;
+    /** 灯箱关闭回调（画廊持有方回收按需创建的 object URL） */
+    onGalleryClose?: () => void;
   }>(),
   {
     alt: '',
@@ -38,6 +48,9 @@ const props = withDefaults(
     downloadAction: undefined,
     downloadBlob: null,
     disabled: false,
+    gallery: undefined,
+    galleryIndex: 0,
+    onGalleryClose: undefined,
   },
 );
 
@@ -47,11 +60,19 @@ const requestDownloadOptions = inject<() => Promise<InlineImageDownloadOptions |
 
 /**
  * 打开统一图片放大预览
+ * 传入画廊时启用左右切换，下载动作取自各条目自身
  * @param event 鼠标或键盘事件
  */
 function openPreview(event: MouseEvent | KeyboardEvent): void {
   if (props.disabled) return;
   event.stopPropagation();
+  if (props.gallery?.length) {
+    openInlineImageLightbox(props.src, props.snapshot, {
+      gallery: { entries: props.gallery, index: props.galleryIndex },
+      onClose: props.onGalleryClose,
+    });
+    return;
+  }
   const onDownload = resolveDownloadAction();
   openInlineImageLightbox(props.src, props.snapshot, onDownload ? { onDownload } : undefined);
 }
