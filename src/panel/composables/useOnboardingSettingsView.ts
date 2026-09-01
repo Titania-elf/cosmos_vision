@@ -2,7 +2,7 @@ import { nextTick, type Ref } from 'vue';
 
 import type { TutorialSettingsScene, TutorialStep } from '@/panel/components/onboarding/tutorial-steps';
 
-type SettingsNavigationTab = TutorialSettingsScene['tab'] | 'prompt-profiles';
+type SettingsNavigationTab = TutorialSettingsScene['tab'] | 'prompt-profiles' | 'stats';
 type SubTabSetters = Record<TutorialSettingsScene['tab'], (value: string) => void>;
 
 export interface SettingsViewTypes {

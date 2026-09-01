@@ -1,4 +1,6 @@
 import type { CosmosVisionSettings, PromptLlmContext } from '@/constants/novelai';
+import type { ImageSource } from '@/constants/comfyui';
+import { useGenerationStatsStore } from '@/store/generation-stats';
 import {
   createInlineGenerationSessionController,
   type InlineGenerationSession,
@@ -80,6 +82,8 @@ export function useInlineImageGeneration(
   const requestPromptPairInput = options.requestPromptPairInput;
   const requestImageDownloadOptions = options.requestImageDownloadOptions;
   const settingsStore = useSettingsStore();
+  /** 生图耗时统计(仅统计内联生图的图像请求阶段,不含 Prompt LLM 与测试页生图) */
+  const statsStore = useGenerationStatsStore();
   /** 当前组件实例上下文,用于把 PrimeVue Button 渲染到聊天内联 DOM */
   const appContext = getCurrentInstance()?.appContext;
   /** 生成会话与取消控制 */
@@ -649,7 +653,9 @@ export function useInlineImageGeneration(
 
   /**
    * 切换到图片生成阶段并保留失败重试所需的提示词快照
+   * 图像请求经 statsStore 计时并记录;每次重试计为一次新记录,用户取消不计入
    * @param session 生成会话
+   * @param source 图像生成来源
    * @param retrySnapshot 生图失败时可复用的提示词快照
    * @param task 实际的图片生成任务
    * @param onSnapshotResolved LLM 成功后回调，传出提示词快照
@@ -657,13 +663,14 @@ export function useInlineImageGeneration(
    */
   async function runImageStep(
     session: InlineGenerationSession,
+    source: ImageSource,
     retrySnapshot: InlinePromptSnapshot,
     task: () => Promise<InlineGenerationBatchResult>,
     onSnapshotResolved?: (snapshot: InlinePromptSnapshot) => void,
   ): Promise<InlineGenerationBatchResult> {
     onSnapshotResolved?.(retrySnapshot);
     session.status.setStatus('正在生成图片...');
-    return task();
+    return statsStore.recordGeneration(source, session.controller.signal, task);
   }
 
   /**
@@ -700,7 +707,13 @@ export function useInlineImageGeneration(
     session: InlineGenerationSession,
   ): Promise<InlineGenerationBatchResult> {
     session.status.setStatus('正在生成图片...');
-    return generateImagesFromSnapshot(settings, snapshot, session.controller.signal);
+    // 快照路径(重试复用)同样计入耗时统计,图像源与请求内保持一致
+    const source = snapshot.imageSource ?? settings.imageSource;
+    return statsStore.recordGeneration(
+      source,
+      session.controller.signal,
+      () => generateImagesFromSnapshot(settings, snapshot, session.controller.signal),
+    );
   }
 
   /**
@@ -727,6 +740,7 @@ export function useInlineImageGeneration(
     const temporarySourceHashes = collectTemporaryVibeSourceHashes(request.prompts.vibeReferences);
     return runImageStep(
       session,
+      'novelai',
       createNovelAISnapshot(request.prompts),
       () => requestNovelAIImages(request, temporarySourceHashes, session),
       onSnapshotResolved,
@@ -778,6 +792,7 @@ export function useInlineImageGeneration(
     );
     return runImageStep(
       session,
+      'comfyui',
       createComfyUISnapshot(request.snapshot),
       async () => ({
         promptSnapshot: createComfyUISnapshot(request.snapshot),

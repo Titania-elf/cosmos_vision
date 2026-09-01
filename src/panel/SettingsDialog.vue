@@ -170,6 +170,7 @@
               :tutorial-node-id="tutorial.isActive ? tutorial.currentStep.comfyuiDemoNodeId : null"
             />
             <PromptProfilesTab v-else-if="activeTab === 'prompt-profiles'" v-model:kind="promptProfilesSubTab" />
+            <StatsTab v-else-if="activeTab === 'stats'" />
             <KeepAlive>
               <PromptLlmTab v-if="activeTab === 'prompt-llm'" :sub-tab="promptLlmSubTab" />
             </KeepAlive>
@@ -290,6 +291,7 @@ import MainTab from '@/panel/tabs/MainTab.vue';
 import NovelAITab from '@/panel/tabs/NovelAITab.vue';
 import PromptLlmTab from '@/panel/tabs/PromptLlmTab.vue';
 import PromptProfilesTab from '@/panel/tabs/PromptProfilesTab.vue';
+import StatsTab from '@/panel/tabs/StatsTab.vue';
 import SubTabNav from '@/panel/components/SubTabNav.vue';
 import { useSettingsOnboardingTutorial } from '@/panel/composables/useSettingsOnboardingTutorial';
 import { useSettingsStore } from '@/store/settings';
@@ -300,7 +302,7 @@ import {
   FOCUSED_PARAGRAPH_TEXT_KEY,
 } from '@/composables/useFocusedParagraphInput';
 
-type NavValue = 'main' | 'novelai' | 'comfyui' | 'prompt-llm' | 'prompt-profiles';
+type NavValue = 'main' | 'novelai' | 'comfyui' | 'prompt-llm' | 'prompt-profiles' | 'stats';
 type ConfirmAction = 'close' | 'discard';
 
 interface SectionInfo {
@@ -336,6 +338,7 @@ const NAV_ITEMS = [
   { value: 'comfyui', label: 'ComfyUI', icon: '' },
   { value: 'prompt-llm', label: 'LLM', icon: 'fa-solid fa-wand-magic-sparkles' },
   { value: 'prompt-profiles', label: '人物', icon: 'fa-solid fa-user-gear' },
+  { value: 'stats', label: '统计', icon: 'fa-solid fa-chart-column' },
 ] as const satisfies ReadonlyArray<{ value: NavValue; label: string; icon: string }>;
 
 const props = withDefaults(defineProps<Props>(), {
