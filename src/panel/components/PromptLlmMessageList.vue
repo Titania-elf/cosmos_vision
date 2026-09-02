@@ -169,6 +169,13 @@
                 @click.stop="openVariablePicker"
               />
             </Popover>
+            <CvMiniButton
+              icon="fa-solid fa-expand"
+              class="cv-macro-button-root"
+              aria-label="全屏编辑内容"
+              title="全屏编辑内容"
+              @click="openContentFullscreenEditor"
+            />
           </div>
         </div>
         <Textarea
@@ -197,6 +204,66 @@
       <div class="flex justify-end gap-(--cv-space-sm)">
         <Button label="取消" text @click="closeMessageEditor" />
         <Button label="保存" icon="fa-solid fa-check" :disabled="!canSaveEditor" @click="saveMessageEditor" />
+      </div>
+    </template>
+  </Dialog>
+
+  <!-- 全屏内容编辑大窗：与草稿实时双向同步 -->
+  <Dialog
+    v-model:visible="isFullscreenEditorVisible"
+    modal
+    :show-header="true"
+    header="编辑内容"
+    :style="FULLSCREEN_EDITOR_DIALOG_STYLE"
+    :content-style="FULLSCREEN_EDITOR_CONTENT_STYLE"
+    :pt="FULLSCREEN_EDITOR_DIALOG_PT"
+    @hide="closeContentFullscreenEditor"
+  >
+    <div class="flex h-full min-h-0 flex-col gap-(--cv-space-md)">
+      <div class="flex w-max items-center gap-(--cv-space-md)">
+        <CvMiniButton
+          label="插入宏"
+          class="cv-macro-button-root cv-fullscreen-macro-trigger"
+          @pointerdown.prevent="rememberFullscreenSelection"
+          @click.stop="toggleFullscreenMacroPopover"
+        />
+        <CvMiniButton
+          label="变量"
+          class="cv-macro-button-root"
+          @pointerdown.prevent="rememberFullscreenSelection"
+          @click.stop="openFullscreenVariablePicker"
+        />
+      </div>
+      <Popover ref="fullscreenMacroPopover" :base-z-index="MACRO_POPOVER_BASE_Z_INDEX" :pt="MACRO_POPOVER_PT">
+        <CvMiniButton
+          v-for="option in PROMPT_LLM_TOKEN_OPTIONS"
+          :key="option.token"
+          :label="option.label"
+          class="cv-macro-button-root cv-macro-option-button"
+          @pointerdown.prevent="rememberFullscreenSelection"
+          @click.stop="selectFullscreenToken(option.token)"
+        />
+      </Popover>
+      <Textarea
+        ref="fullscreenContentTextarea"
+        :model-value="editorDraft?.customContent ?? ''"
+        class="custom-scrollbar min-h-0 w-full flex-1 resize-none overflow-y-auto"
+        placeholder="输入消息内容..."
+        @click="rememberFullscreenSelection"
+        @focus="rememberFullscreenSelection"
+        @keyup="rememberFullscreenSelection"
+        @select="rememberFullscreenSelection"
+        @update:model-value="value => updateDraftField('customContent', value ?? '')"
+      />
+    </div>
+    <template #footer>
+      <div class="flex items-center justify-between gap-(--cv-space-sm)">
+        <span class="text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">
+          {{ (editorDraft?.customContent ?? '').length }} 字
+        </span>
+        <div class="flex gap-(--cv-space-sm)">
+          <Button label="完成" icon="fa-solid fa-check" @click="closeContentFullscreenEditor" />
+        </div>
       </div>
     </template>
   </Dialog>
@@ -289,6 +356,25 @@ const messageSelectionRange = ref<TextRange | null>(null);
 const isEditorVisible = ref(false);
 const isVariablePickerVisible = ref(false);
 const isLoadingWorldbookSources = ref(false);
+/** 全屏内容编辑大窗 */
+const isFullscreenEditorVisible = ref(false);
+const fullscreenMacroPopover = ref<MacroPopoverInstance | null>(null);
+const fullscreenContentTextarea = ref<TextareaRef>(null);
+const fullscreenSelectionRange = ref<TextRange | null>(null);
+/** 变量选择器的插入目标是否为全屏大窗（默认小窗输入框） */
+const isInsertTargetFullscreen = ref(false);
+
+/** 全屏内容编辑大窗尺寸：近全屏，四周留呼吸边距 */
+const FULLSCREEN_EDITOR_DIALOG_STYLE = {
+  width: 'min(56rem, calc(100vw - 4rem))',
+  height: 'min(85dvh, 48rem)',
+  maxHeight: 'calc(100dvh - 2rem)',
+  maxWidth: 'calc(100vw - 2rem)',
+} as const;
+const FULLSCREEN_EDITOR_CONTENT_STYLE = { padding: '0', overflow: 'hidden', height: '100%' } as const;
+const FULLSCREEN_EDITOR_DIALOG_PT = {
+  content: { class: 'cv-fullscreen-editor-content' },
+} as const;
 
 let worldbookSourceRequestId = 0;
 let entryStatusRequestId = 0;
@@ -458,6 +544,10 @@ function closeMessageEditor(): void {
   editorDraft.value = null;
   editorPreview.value = null;
   messageSelectionRange.value = null;
+  // 大窗是消息编辑的子层级，一并关闭（不触发光标回填）
+  isFullscreenEditorVisible.value = false;
+  fullscreenSelectionRange.value = null;
+  isInsertTargetFullscreen.value = false;
 }
 
 /**
@@ -559,10 +649,15 @@ function openVariablePicker(): void {
 }
 
 /**
- * 向自定义消息选区插入宏
+ * 向自定义消息选区插入宏（按当前插入目标路由到小窗或全屏大窗）
  * @param token 宏文本
  */
 function insertMessageToken(token: string): void {
+  if (isInsertTargetFullscreen.value) {
+    insertFullscreenToken(token);
+    isInsertTargetFullscreen.value = false;
+    return;
+  }
   const draft = editorDraft.value;
   if (!draft || draft.kind !== 'custom') return;
   const range = readTextareaInsertRange(
@@ -590,6 +685,110 @@ function getMessageContentTextareaElement(): HTMLTextAreaElement | null {
 function focusMessageContentTextarea(position: number): void {
   focusTextareaAt(getMessageContentTextareaElement, position, range => {
     messageSelectionRange.value = range;
+  });
+}
+
+// ── 全屏内容编辑大窗 ─────────────────────────────────
+
+/**
+ * 打开全屏内容编辑大窗（携带当前选区位置）
+ */
+function openContentFullscreenEditor(): void {
+  if (!editorDraft.value || editorDraft.value.kind !== 'custom') return;
+  const el = getMessageContentTextareaElement();
+  if (el) {
+    fullscreenSelectionRange.value = { start: el.selectionStart, end: el.selectionEnd };
+  } else {
+    fullscreenSelectionRange.value = messageSelectionRange.value;
+  }
+  isFullscreenEditorVisible.value = true;
+  void nextTick(() => {
+    const range = fullscreenSelectionRange.value;
+    const position = range ? range.start : (editorDraft.value?.customContent.length ?? 0);
+    focusFullscreenTextarea(position);
+  });
+}
+
+/**
+ * 关闭全屏编辑大窗并把光标位置带回原输入框
+ */
+function closeContentFullscreenEditor(): void {
+  isFullscreenEditorVisible.value = false;
+  fullscreenMacroPopover.value?.hide();
+  const range = fullscreenSelectionRange.value;
+  fullscreenSelectionRange.value = null;
+  if (range) focusMessageContentTextarea(Math.min(range.start, editorDraft.value?.customContent.length ?? 0));
+}
+
+/**
+ * 记录全屏编辑输入框选区
+ */
+function rememberFullscreenSelection(): void {
+  const el = getFullscreenTextareaElement();
+  if (!el) return;
+  fullscreenSelectionRange.value = { start: el.selectionStart, end: el.selectionEnd };
+}
+
+/**
+ * 切换全屏编辑的宏选择浮层
+ * @param event 点击事件
+ */
+function toggleFullscreenMacroPopover(event: Event): void {
+  fullscreenMacroPopover.value?.toggle(event);
+}
+
+/**
+ * 选择并插入宏到全屏编辑框
+ * @param token 宏文本
+ */
+function selectFullscreenToken(token: string): void {
+  insertFullscreenToken(token);
+  fullscreenMacroPopover.value?.hide();
+}
+
+/**
+ * 打开全屏编辑的变量选择弹窗（复用同一个选择器，插入目标切到大窗）
+ */
+function openFullscreenVariablePicker(): void {
+  fullscreenMacroPopover.value?.hide();
+  isVariablePickerVisible.value = true;
+  // 选择器的 insert 事件统一走 insertMessageToken；
+  // 打开时记录大窗选区，插入后聚焦回大窗
+  isInsertTargetFullscreen.value = true;
+}
+
+/**
+ * 向全屏编辑框选区插入宏
+ * @param token 宏文本
+ */
+function insertFullscreenToken(token: string): void {
+  const draft = editorDraft.value;
+  if (!draft || draft.kind !== 'custom') return;
+  const range = readTextareaInsertRange(
+    getFullscreenTextareaElement(),
+    fullscreenSelectionRange.value,
+    draft.customContent,
+  );
+  const nextValue = replaceTextRange(draft.customContent, range, token);
+  updateDraftField('customContent', nextValue);
+  focusFullscreenTextarea(range.start + token.length);
+}
+
+/**
+ * 读取全屏编辑输入框原生元素
+ * @returns 文本框元素
+ */
+function getFullscreenTextareaElement(): HTMLTextAreaElement | null {
+  return getTextareaElement(fullscreenContentTextarea.value);
+}
+
+/**
+ * 恢复全屏编辑输入框焦点和光标
+ * @param position 光标位置
+ */
+function focusFullscreenTextarea(position: number): void {
+  focusTextareaAt(getFullscreenTextareaElement, position, range => {
+    fullscreenSelectionRange.value = range;
   });
 }
 

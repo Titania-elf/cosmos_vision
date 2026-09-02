@@ -3,3 +3,12 @@
   flex-direction: column;
   overflow-y: auto;
 }
+
+/* 全屏内容编辑大窗：内容区占满弹窗剩余高度（输入框 flex-1 撑满） */
+.cv-fullscreen-editor-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
