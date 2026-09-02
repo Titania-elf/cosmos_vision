@@ -80,6 +80,15 @@ export interface ComfyUIWorkflowPresetSettings {
   presets: ComfyUIWorkflowPreset[];
 }
 
+/** ComfyUI 分辨率组合（一键写入节点 width/height） */
+export interface ComfyUIResolutionCombo {
+  id: string;
+  /** 组合名称（用户自定义，如「人物立绘」） */
+  name: string;
+  width: number;
+  height: number;
+}
+
 /**
  * 创建 ComfyUI 工作流预设
  * @param id 预设 ID
@@ -176,4 +185,23 @@ export interface ComfyUISettings extends ImagePromptPresetReferences {
   timeout: number;
   workflowPresets: ComfyUIWorkflowPresetSettings;
   loraPresets: ComfyUILoraPresetSettings;
+  /** 收藏的分辨率组合（按名称排序展示） */
+  resolutionCombos: ComfyUIResolutionCombo[];
+}
+
+/**
+ * 创建 ComfyUI 分辨率组合
+ * @param id 组合 ID
+ * @param name 组合名称
+ * @param width 宽
+ * @param height 高
+ * @returns 分辨率组合
+ */
+export function createComfyUIResolutionCombo(
+  id: string,
+  name: string,
+  width: number,
+  height: number,
+): ComfyUIResolutionCombo {
+  return { id, name, width, height };
 }

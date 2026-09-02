@@ -84,6 +84,14 @@
         <div v-if="workflowValidationError" class="cv-field-warn">{{ workflowValidationError }}</div>
       </div>
 
+      <!-- 分辨率组合：常驻面板，一键写入工作流尺寸节点 -->
+      <ComfyUIResolutionComboPanel
+        :combos="settings.comfyui.resolutionCombos"
+        :workflow-json="workflowEditorJson"
+        @update:combos="settings.comfyui.resolutionCombos = $event"
+        @update:workflow-json="workflowEditorJson = $event"
+      />
+
       <h2 class="cv-section-title">生图提示词</h2>
       <div class="cv-section-body">
         <ImagePromptPresetPanel
@@ -116,6 +124,7 @@ import { applyActiveLoraPresetToWorkflowJson, getActiveComfyUILoras } from '@/se
 import { getComfyUIWorkflowValidationError } from '@/services/comfyui/parse';
 import { findComfyUIWorkflowPreset, importComfyUIWorkflowPreset } from '@/services/comfyui/workflow-presets';
 import ComfyUIWorkflowEditor from '@/panel/components/comfyui/ComfyUIWorkflowEditor.vue';
+import ComfyUIResolutionComboPanel from '@/panel/components/comfyui/ComfyUIResolutionComboPanel.vue';
 import PresetSelector from '@/panel/components/PresetSelector.vue';
 import { useSettingsStore } from '@/store/settings';
 import { useSyncCacheStore } from '@/store/sync-cache';

@@ -155,6 +155,7 @@ export const DEFAULT_SETTINGS: CosmosVisionSettings = {
     timeout: COMFYUI_DEFAULT_TIMEOUT,
     workflowPresets: createComfyUIWorkflowPresetSettings(),
     loraPresets: createComfyUILoraPresetSettings(),
+    resolutionCombos: [],
     positivePromptPresetId: DEFAULT_POSITIVE_PROMPT_PRESET_ID,
     negativePromptPresetId: DEFAULT_NEGATIVE_PROMPT_PRESET_ID,
   },

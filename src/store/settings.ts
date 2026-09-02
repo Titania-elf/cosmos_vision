@@ -184,11 +184,19 @@ const novelAISettingsSchema = z.object({
   autoCharacterCoords: z.boolean(),
 });
 
+const comfyUIResolutionComboSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+});
+
 const comfyUISettingsSchema = z.object({
   url: z.string(),
   timeout: z.number().int().positive(),
   workflowPresets: comfyUIWorkflowPresetSettingsSchema,
   loraPresets: comfyUILoraPresetSettingsSchema,
+  resolutionCombos: z.array(comfyUIResolutionComboSchema).default([]),
   positivePromptPresetId: imagePromptPresetIdSchema,
   negativePromptPresetId: imagePromptPresetIdSchema,
 });
