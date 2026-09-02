@@ -34,6 +34,7 @@
     :cancel-label="textInputDialogState.cancelLabel"
     :dark-mode="darkMode"
     :enable-characters="textInputDialogState.enableCharacters"
+    :artist-tags="textInputDialogState.artistTags"
     @submit="handleTextInputDialog"
   />
   <ImageDownloadDialog
@@ -191,6 +192,8 @@ interface TextInputDialogState {
   cancelLabel: string;
   enableCharacters: boolean;
   characters: TextInputCharacterDraft[];
+  /** 可选画师串列表（仅编辑提示词后生图弹窗传入） */
+  artistTags?: { name: string; text: string }[];
   resolve: (value: TextInputDialogSubmitValue | null) => void;
 }
 
@@ -409,6 +412,7 @@ function showTextInputDialog(options: InlineTextInputOptions): Promise<string | 
       cancelLabel: options.cancelLabel ?? '取消',
       enableCharacters: false,
       characters: [],
+      artistTags: undefined,
       resolve: result => resolve(result?.value ?? null),
     };
     textInputDialogVisible.value = true;
@@ -435,6 +439,7 @@ function showPromptPairDialog(options: InlinePromptPairInputOptions): Promise<In
       cancelLabel: options.cancelLabel ?? '取消',
       enableCharacters: Boolean(options.enableCharacters),
       characters: toTextInputCharacterDrafts(options.charactersDefaultValue ?? []),
+      artistTags: options.artistTags,
       resolve: result =>
         resolve(
           result

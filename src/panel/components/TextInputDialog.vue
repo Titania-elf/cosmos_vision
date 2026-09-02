@@ -16,10 +16,41 @@
     >
       <div class="cv-confirm-message mb-2">{{ message }}</div>
       <div class="flex min-h-0 flex-col gap-(--cv-space-sm)">
-        <label
-          v-if="primaryLabel"
-          class="text-(length:--cv-font-size-xs) font-semibold leading-[1.4] text-(--cv-on-surface)"
-        >{{ primaryLabel }}</label>
+        <div v-if="primaryLabel" class="flex items-center justify-between gap-(--cv-space-md)">
+          <label class="text-(length:--cv-font-size-xs) font-semibold leading-[1.4] text-(--cv-on-surface)"
+            >{{ primaryLabel }}</label
+          >
+          <CvMiniButton
+            v-if="artistTags?.length"
+            icon="fa-solid fa-palette"
+            label="画师串"
+            title="选择画师串插入到提示词开头"
+            aria-label="选择画师串插入到提示词开头"
+            @click="artistTagPopover?.toggle($event)"
+          />
+          <Popover ref="artistTagPopover">
+            <div
+              class="flex max-h-[min(16rem,40vh)] w-[min(20rem,80vw)] flex-col gap-(--cv-space-xs) overflow-y-auto overscroll-contain p-(--cv-space-xs)"
+            >
+              <button
+                v-for="entry in artistTags"
+                :key="entry.name"
+                type="button"
+                class="flex w-full cursor-pointer flex-col gap-(--cv-space-2xs) rounded-(--cv-radius-sm) border-0 bg-transparent px-(--cv-space-lg) py-(--cv-space-xs) text-left hover:bg-(--cv-surface-container-highest)"
+                :title="entry.text"
+                @click="insertArtistTag(entry)"
+              >
+                <span class="text-(length:--cv-font-size-xs) font-semibold text-(--cv-on-surface)">{{
+                  entry.name || '未命名画师串'
+                }}</span>
+                <span
+                  class="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)"
+                  >{{ entry.text }}</span
+                >
+              </button>
+            </div>
+          </Popover>
+        </div>
         <Textarea
           ref="inputRef"
           v-model="value"
@@ -129,6 +160,7 @@
 
 <script setup lang="ts">
 import { useMediaQuery } from '@vueuse/core';
+import Popover from 'primevue/popover';
 
 import { DARK_CLASS } from '@/constants/default-settings';
 import CollapsiblePanelItem from '@/panel/components/CollapsiblePanelItem.vue';
@@ -163,6 +195,8 @@ const props = withDefaults(
     cancelLabel?: string;
     darkMode?: boolean;
     enableCharacters?: boolean;
+    /** 可选画师串列表（提供时主文本框旁显示插入入口） */
+    artistTags?: { name: string; text: string }[] | null;
   }>(),
   {
     primaryLabel: '',
@@ -173,6 +207,7 @@ const props = withDefaults(
     cancelLabel: '取消',
     darkMode: false,
     enableCharacters: false,
+    artistTags: null,
   },
 );
 
@@ -181,6 +216,7 @@ const emit = defineEmits<{
 }>();
 
 const inputRef = ref<TextInputRef>(null);
+const artistTagPopover = ref<{ toggle: (event: Event) => void; hide: () => void } | null>(null);
 const isMobile = useMediaQuery('(max-width: 87.5em)');
 const expandedIds = ref(new Set<number>());
 let nextCharacterId = 0;
@@ -193,6 +229,23 @@ const dialogStyle = computed(() =>
     : { width: '42rem', maxWidth: 'calc(100vw - 3rem)', maxHeight: 'calc(100vh - 3rem)' },
 );
 const contentStyle = { overflow: 'hidden' } as const;
+
+/**
+ * 插入画师串到主文本框开头
+ * 已包含相同画师串时不重复插入
+ * @param entry 画师串条目
+ */
+function insertArtistTag(entry: { name: string; text: string }): void {
+  const tagText = entry.text.trim();
+  if (!tagText) return;
+  artistTagPopover.value?.hide();
+  const current = value.value.trim();
+  if (current.includes(tagText)) {
+    toastr.info('该画师串已在提示词中');
+    return;
+  }
+  value.value = current ? `${tagText}, ${current}` : tagText;
+}
 
 /**
  * 提交文本输入弹窗结果

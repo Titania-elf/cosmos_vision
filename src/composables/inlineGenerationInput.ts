@@ -23,6 +23,12 @@ export interface InlineTextInputOptions {
   cancelLabel?: string;
 }
 
+/** 可插入的画师串选项 */
+export interface InlineArtistTagOption {
+  name: string;
+  text: string;
+}
+
 export interface InlinePromptPairInputOptions {
   title?: string;
   message: string;
@@ -38,6 +44,8 @@ export interface InlinePromptPairInputOptions {
   enableCharacters?: boolean;
   /** 角色提示词初始值 */
   charactersDefaultValue?: InlineCharacterPromptDraft[];
+  /** 可选画师串列表（提供时正向提示词旁显示插入入口） */
+  artistTags?: InlineArtistTagOption[];
 }
 
 export interface InlinePromptPairInputValue {
@@ -98,6 +106,9 @@ export async function requestEditedPromptSnapshot(
     negativeRows: 4,
     enableCharacters: canEditCharacters,
     charactersDefaultValue: initialPrompts.characters,
+    artistTags: settings.artistTagPool.entries
+      .filter(entry => entry.enabled && entry.text.trim())
+      .map(({ name, text }) => ({ name, text: text.trim() })),
   });
   if (!prompts) return null;
   return createEditedPromptSnapshot(settings.novelai, snapshot, prompts);
