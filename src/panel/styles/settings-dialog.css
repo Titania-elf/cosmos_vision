@@ -28,36 +28,64 @@
 
 .cosmos-vision-root .cv-sidebar {
   @apply flex flex-col p-0;
+  /* 收起态窄条宽（覆盖 theme-tokens 的桌面全宽默认值） */
+  --cv-sidebar-width: 2.6em;
   flex: 0 0 var(--cv-sidebar-width);
   width: var(--cv-sidebar-width);
   background: var(--cv-surface-container-low);
   border-right: var(--cv-border-width) solid var(--cv-surface-variant);
+  z-index: 40;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), flex-basis 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: visible;
 }
 
-.cosmos-vision-root .cv-brand {
-  @apply flex items-center;
-  height: 6.4em;
-  gap: var(--cv-space-3xl);
-  padding: 0 var(--cv-space-8xl);
+/* 展开态：全宽滑出，内容纵向排布 */
+.cosmos-vision-root .cv-sidebar--expanded {
+  --cv-sidebar-width: 12.5333em;
 }
 
-.cosmos-vision-root .cv-brand-icon {
-  @apply flex shrink-0 items-center justify-center rounded-full;
-  width: 2.1333em;
-  height: 2.1333em;
-  background: var(--cv-surface-container-low);
-  color: var(--cv-on-surface);
-  font-size: var(--cv-font-size-lg);
+/* 收起态文字隐藏（默认）；展开态展示 */
+.cosmos-vision-root .cv-nav-label {
+  display: none;
 }
 
-.cosmos-vision-root .cv-brand-text {
-  @apply flex flex-col;
+.cosmos-vision-root .cv-sidebar--expanded .cv-nav-label {
+  display: inline;
 }
 
-.cosmos-vision-root .cv-brand-title {
-  font-family: var(--cv-font-headline);
-  font-size: var(--cv-font-size-xl);
-  font-weight: 600;
+/* 展开态遮罩：覆盖主内容区，点击收起 */
+.cosmos-vision-root .cv-sidebar-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: color-mix(in srgb, var(--cv-on-surface) 22%, transparent);
+  cursor: pointer;
+}
+
+/* 汉堡行：窄条顶部常驻，展开态右对齐（指向收起方向） */
+.cosmos-vision-root .cv-sidebar-toggle-row {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: center;
+  padding: var(--cv-space-4xl) 0;
+}
+
+.cosmos-vision-root .cv-sidebar--expanded .cv-sidebar-toggle-row {
+  justify-content: flex-end;
+  padding: var(--cv-space-4xl) var(--cv-space-5xl);
+}
+
+.cosmos-vision-root .cv-brand-toggle {
+  @apply flex cursor-pointer items-center justify-center border-0 bg-transparent;
+  width: 1.8667em;
+  height: 1.8667em;
+  border-radius: var(--cv-radius-sm);
+  color: var(--cv-on-surface-variant);
+  transition: all 0.15s;
+}
+
+.cosmos-vision-root .cv-brand-toggle:hover {
+  background: var(--cv-surface-container-high);
   color: var(--cv-on-surface);
 }
 
@@ -65,16 +93,32 @@
   @apply flex flex-1 flex-col overflow-y-auto;
   flex: 1;
   gap: var(--cv-space-lg);
+  padding: var(--cv-space-4xl) 0;
+  align-items: center;
+}
+
+.cosmos-vision-root .cv-sidebar--expanded .cv-nav {
   padding: var(--cv-space-5xl);
+  align-items: stretch;
 }
 
 .cosmos-vision-root .cv-nav-item {
   @apply flex cursor-pointer items-center border-0 bg-transparent text-left;
   gap: var(--cv-space-3xl);
-  padding: var(--cv-space-3xl) var(--cv-space-5xl);
+  padding: 0;
+  width: 2em;
+  height: 2em;
+  justify-content: center;
   border-radius: var(--cv-radius-full);
   color: var(--cv-on-surface-variant);
   transition: all 0.15s;
+}
+
+.cosmos-vision-root .cv-sidebar--expanded .cv-nav-item {
+  width: auto;
+  height: auto;
+  padding: var(--cv-space-3xl) var(--cv-space-5xl);
+  justify-content: flex-start;
 }
 
 .cosmos-vision-root .cv-nav-item:hover {
@@ -89,11 +133,24 @@
   font-weight: 500;
 }
 
+/* 收起态不位移（窄条内会溢出） */
+.cosmos-vision-root .cv-nav-item--active {
+  transform: none;
+}
+
+.cosmos-vision-root .cv-sidebar--expanded .cv-nav-item--active {
+  transform: translateX(0.2667em);
+}
+
 .cosmos-vision-root .cv-nav-icon {
   @apply shrink-0 text-center;
-  font-size: var(--cv-font-size-lg);
+  font-size: var(--cv-font-size-base);
   width: 1.1em;
   height: 1.1em;
+}
+
+.cosmos-vision-root .cv-sidebar--expanded .cv-nav-icon {
+  font-size: var(--cv-font-size-lg);
 }
 
 .cosmos-vision-root .cv-nav-label {
@@ -149,6 +206,36 @@
   font-family: var(--cv-font-label);
   font-size: var(--cv-font-size-xs);
   font-weight: 500;
+  letter-spacing: 0.05em;
+}
+
+/* 品牌标识：面包屑左端，小号图标 + 标题，与右上角关闭按钮对角呼应 */
+.cosmos-vision-root .cv-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cv-space-md);
+  color: var(--cv-on-surface);
+}
+
+.cosmos-vision-root .cv-brand-icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.2em;
+  height: 1.2em;
+}
+
+.cosmos-vision-root .cv-brand-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.cosmos-vision-root .cv-brand-title {
+  font-family: var(--cv-font-headline);
+  font-size: var(--cv-font-size-lg);
+  font-weight: 600;
+  color: var(--cv-on-surface);
   letter-spacing: 0.05em;
 }
 
@@ -471,52 +558,7 @@
 }
 
 @media (max-width: 87.5em) {
-  .cosmos-vision-root {
-    --cv-sidebar-width: 2.6em;
-  }
-
-  .cosmos-vision-root .cv-brand {
-    height: 4.5em;
-    padding: 0;
-    justify-content: center;
-  }
-
-  .cosmos-vision-root .cv-brand-icon {
-    width: 1.75em;
-    height: 1.75em;
-    font-size: var(--cv-font-size-base);
-  }
-
-  .cosmos-vision-root .cv-brand-text {
-    display: none;
-  }
-
-  .cosmos-vision-root .cv-nav {
-    padding: var(--cv-space-4xl) 0;
-    align-items: center;
-    gap: var(--cv-space-lg);
-  }
-
-  .cosmos-vision-root .cv-nav-label {
-    display: none;
-  }
-
-  .cosmos-vision-root .cv-nav-item {
-    width: 2em;
-    height: 2em;
-    padding: 0;
-    justify-content: center;
-    border-radius: var(--cv-radius-full);
-  }
-
-  .cosmos-vision-root .cv-nav-icon {
-    font-size: var(--cv-font-size-base);
-  }
-
-  .cosmos-vision-root .cv-nav-item--active {
-    transform: none;
-  }
-
+  /* 侧栏默认即图标窄条（点击滑出交互），无需再折叠 */
   .cosmos-vision-root .cv-header {
     padding: var(--cv-space-4xl) var(--cv-space-5xl);
     min-height: auto;

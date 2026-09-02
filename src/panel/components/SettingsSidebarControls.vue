@@ -1,23 +1,24 @@
 <template>
   <div
     class="flex shrink-0 flex-col gap-(--cv-space-lg) p-(--cv-space-8xl) max-[87.5em]:items-center max-[87.5em]:px-0 max-[87.5em]:py-(--cv-space-4xl)"
+    :class="{ '!items-center !px-0 !py-(--cv-space-4xl)': compact }"
   >
     <Button
-      :class="[SIDEBAR_CONTROL_CLASS, SIDEBAR_ACTION_CLASS, mobile ? SIDEBAR_ICON_SIZE_CLASS : SIDEBAR_FULL_SIZE_CLASS]"
+      :class="[SIDEBAR_CONTROL_CLASS, SIDEBAR_ACTION_CLASS, compact ? SIDEBAR_ICON_SIZE_CLASS : SIDEBAR_FULL_SIZE_CLASS]"
       :pt="BUTTON_PT"
-      :label="mobile ? undefined : '使用教程'"
+      :label="compact ? undefined : '使用教程'"
       icon="fa-regular fa-circle-question"
       severity="secondary"
       outlined
-      :rounded="mobile"
-      :fluid="!mobile"
+      :rounded="compact"
+      :fluid="!compact"
       title="使用教程"
       aria-label="使用教程"
       @click="emit('start-tutorial')"
     />
 
     <SelectButton
-      v-if="!mobile"
+      v-if="!compact"
       v-model="darkMode"
       :class="[SIDEBAR_CONTROL_CLASS, SIDEBAR_FULL_SIZE_CLASS, SIDEBAR_THEME_CLASS]"
       :pt="THEME_PT"
@@ -52,11 +53,18 @@
 <script setup lang="ts">
 interface Props {
   mobile: boolean;
+  /** 紧凑态（侧栏收起）：控件退化为图标圆钮 */
+  compact?: boolean;
 }
 
-defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  compact: false,
+});
 const emit = defineEmits<{ 'start-tutorial': [] }>();
 const darkMode = defineModel<boolean>({ required: true });
+
+/** 图标形态触发条件：移动端或紧凑态 */
+const compact = toRef(props, 'compact');
 
 const THEME_OPTIONS = [
   { value: false, label: 'Light', icon: 'fa-regular fa-sun' },

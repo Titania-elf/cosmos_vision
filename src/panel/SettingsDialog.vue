@@ -10,47 +10,29 @@
     @show="handleShow"
   >
     <div class="cv-shell">
-      <!-- 侧边栏导航 -->
-      <nav class="cv-sidebar">
-        <!-- Logo/品牌区 -->
-        <div class="cv-brand">
-          <div class="cv-brand-icon">
-            <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <g fill="currentColor">
-                <circle cx="50" cy="50" r="14" />
-
-                <path
-                  d="M 16,50 
-             A 34,34 0 0,1 63,18.6 
-             C 61,21 59.5,23 56.7,24.9 
-             A 26,26 0 0,0 24.9,43.3 
-             C 21,46 18,48 16,50 Z"
-                />
-
-                <path
-                  d="M 84,50 
-             A 34,34 0 0,1 37,81.4 
-             C 39,79 40.5,77 43.3,75.1 
-             A 26,26 0 0,0 75.1,56.7 
-             C 79,54 82,52 84,50 Z"
-                />
-
-                <path
-                  d="M 75,11 
-             Q 75,21 85,21 
-             Q 75,21 75,31 
-             Q 75,21 65,21 
-             Q 75,21 75,11 Z"
-                />
-
-                <circle cx="25" cy="79" r="5" />
-              </g>
-            </svg>
-          </div>
-          <div class="cv-brand-text">
-            <span class="cv-brand-title">Cosmos</span>
-          </div>
+      <!-- 侧边栏导航：点击汉堡展开滑出 -->
+      <nav class="cv-sidebar" :class="{ 'cv-sidebar--expanded': sidebarExpanded }">
+        <!-- 汉堡把手：收起态常驻窄条顶部，展开态变收起箭头 -->
+        <div class="cv-sidebar-toggle-row">
+          <button
+            type="button"
+            class="cv-brand-toggle"
+            :aria-label="sidebarExpanded ? '收起导航栏' : '展开导航栏'"
+            :aria-expanded="sidebarExpanded"
+            :title="sidebarExpanded ? '收起导航栏' : '展开导航栏'"
+            @click="sidebarExpanded = !sidebarExpanded"
+          >
+            <i class="fa-solid" :class="sidebarExpanded ? 'fa-angles-left' : 'fa-bars'" aria-hidden="true" />
+          </button>
         </div>
+
+        <!-- 展开态遮罩：点击侧栏外区域收起 -->
+        <div
+          v-if="sidebarExpanded"
+          class="cv-sidebar-scrim"
+          aria-hidden="true"
+          @click="sidebarExpanded = false"
+        />
 
         <!-- 主导航 -->
         <div class="cv-nav">
@@ -60,7 +42,8 @@
             type="button"
             class="cv-nav-item"
             :class="{ 'cv-nav-item--active': activeTab === item.value }"
-            @click="activeTab = item.value"
+            :title="sidebarExpanded ? undefined : item.label"
+            @click="handleNavClick(item.value)"
           >
             <svg
               v-if="item.value === 'comfyui'"
@@ -100,10 +83,9 @@
           </button>
         </div>
 
-        <!-- 底部操作 -->
-        <SettingsSidebarControls v-model="darkMode" :mobile="isMobile" @start-tutorial="tutorial.start" />
+        <!-- 底部操作（收起态传 compact 退化为图标圆钮） -->
+        <SettingsSidebarControls v-model="darkMode" :mobile="isMobile" :compact="!sidebarExpanded" @start-tutorial="tutorial.start" />
       </nav>
-
       <!-- 主内容区 -->
       <main class="cv-main">
         <!-- 关闭按钮 -->
@@ -114,6 +96,44 @@
         <!-- 顶部标题 -->
         <header class="cv-header">
           <div ref="breadcrumbRef" class="cv-breadcrumb">
+            <!-- 品牌标识：面包屑左侧，与右上角关闭按钮对角呼应 -->
+            <span class="cv-brand">
+              <span class="cv-brand-icon">
+                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <g fill="currentColor">
+                    <circle cx="50" cy="50" r="14" />
+
+                    <path
+                      d="M 16,50
+                 A 34,34 0 0,1 63,18.6
+                 C 61,21 59.5,23 56.7,24.9
+                 A 26,26 0 0,0 24.9,43.3
+                 C 21,46 18,48 16,50 Z"
+                    />
+
+                    <path
+                      d="M 84,50
+                 A 34,34 0 0,1 37,81.4
+                 C 39,79 40.5,77 43.3,75.1
+                 A 26,26 0 0,0 75.1,56.7
+                 C 79,54 82,52 84,50 Z"
+                    />
+
+                    <path
+                      d="M 75,11
+                 Q 75,21 85,21
+                 Q 75,21 75,31
+                 Q 75,21 65,21
+                 Q 75,21 75,11 Z"
+                    />
+
+                    <circle cx="25" cy="79" r="5" />
+                  </g>
+                </svg>
+              </span>
+              <span class="cv-brand-title">Cosmos</span>
+              <i class="fa-solid fa-chevron-right cv-breadcrumb-sep" />
+            </span>
             <span class="cv-breadcrumb-item">设置</span>
             <i class="fa-solid fa-chevron-right cv-breadcrumb-sep" />
             <span class="cv-breadcrumb-item cv-breadcrumb-item--active">{{ currentTabLabel }}</span>
@@ -419,6 +439,18 @@ const breadcrumbRef = ref<HTMLElement | null>(null);
 const isConfirmVisible = ref(false);
 const confirmAction = ref<ConfirmAction>('close');
 let isSectionRefreshPending = false;
+
+/** 侧边栏展开状态（点击滑出；默认收起为图标窄条） */
+const sidebarExpanded = ref(false);
+
+/**
+ * 导航项点击：切换主标签并收起侧栏
+ * @param value 导航项值
+ */
+function handleNavClick(value: NavValue): void {
+  activeTab.value = value;
+  sidebarExpanded.value = false;
+}
 const tutorial = useSettingsOnboardingTutorial({
   visible,
   activeTab,
@@ -570,6 +602,7 @@ function handleShow(): void {
   if (tutorial.handleDialogShow()) return;
   settingsStore.resetDraftSettings();
   closeConfirmDialog();
+  sidebarExpanded.value = false;
 }
 
 /**
