@@ -40,6 +40,18 @@ export interface PromptLlmGenerateOptions {
   generationId?: string;
   /** 显式触发上下文；缺省时仅 history，模型/来源为空 */
   triggerContext?: PromptLlmTriggerContext;
+  /** 请求监视钩子（仅内联生图路径传入；测试页与人物标签解析不捕获） */
+  inspector?: PromptLlmInspectorHooks;
+}
+
+/** Prompt LLM 请求监视钩子 */
+export interface PromptLlmInspectorHooks {
+  /** 每次账号尝试构建完请求体后调用（多账号故障转移时按次触发） */
+  onRequestBuilt?: (request: TavernHelperGenerateRawConfig, account?: PromptLlmAccount) => void;
+  /** 请求成功后调用 */
+  onSucceeded?: (rawText: string, accountName: string) => void;
+  /** 全部账号尝试失败或请求异常后调用 */
+  onFailed?: (error: unknown) => void;
 }
 
 /**
@@ -204,8 +216,8 @@ async function generatePromptTextFromRuntimeContext(
       tavernHelper,
       settings,
       options,
-      account =>
-        buildPromptLlmRuntimeRequestFromContext(
+      async account => {
+        const request = await buildPromptLlmRuntimeRequestFromContext(
           context,
           settings,
           presetSettings,
@@ -213,10 +225,15 @@ async function generatePromptTextFromRuntimeContext(
           schemaFields,
           options.triggerContext,
           account,
-        ),
+        );
+        options.inspector?.onRequestBuilt?.(request, account);
+        return request;
+      },
     );
+    options.inspector?.onSucceeded?.(result.rawText, result.accountName);
     return result.rawText;
   } catch (error) {
+    options.inspector?.onFailed?.(error);
     throw new Error(`提示词生成失败: ${(error as Error).message}`);
   }
 }

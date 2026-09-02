@@ -1,0 +1,493 @@
+/*
+ * LLM 请求监视弹窗
+ *
+ * 挂 body 的全页浮层（cosmos-vision-root + dark class 驱动 cv token 主题）。
+ * 布局/动效集中在 CSS：弹出过渡、流式光标与内部滚动条
+ * 依赖 cv-* 变量与 FA 自转动画，不依赖设置弹窗的样式表。
+ * 入口在悬浮球 Speed Dial 次级菜单（App.vue），红点样式也在此定义。
+ */
+
+/* ── 悬浮球次级菜单红点（进行中的 LLM 会话提示） ──── */
+/* 父按钮 .cv-speed-dial-menu > button 自带 position:relative（inline-image.css） */
+.cv-speed-dial-menu > button .cv-fab-menu-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 50%;
+  background: #e75a5a;
+  animation: cv-llm-inspector-pulse 1.6s ease-out infinite;
+}
+
+@keyframes cv-llm-inspector-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--cvp-red-500) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 0.45em transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* ── 弹窗外壳：居中中等尺寸 ───────────────────────── */
+/* 移动端 ST 的 browser-fixes 会临时把 html 设为 position:fixed（viewport 修复），
+ * 此时 fixed 元素的包含块（html）高度塌缩，inset/margin:auto 方案会把弹窗顶到页首。
+ * 改用视口单位直接锚定：top/left 用 calc 配合 translate 居中，
+ * 百分比偏移基于弹窗自身尺寸，不受包含块影响。 */
+.cv-llm-inspector {
+  position: fixed;
+  top: calc(50svh - min(34rem, calc(100svh - 4rem)) / 2);
+  left: calc(50vw - min(46rem, calc(100vw - 2rem)) / 2);
+  z-index: 9000;
+  display: flex;
+  width: min(46rem, calc(100vw - 2rem));
+  height: min(34rem, calc(100svh - 4rem));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--cv-outline-variant);
+  border-radius: var(--cv-radius);
+  background: var(--cv-surface);
+  box-shadow: var(--cv-floating-shadow);
+  font-family: var(--cv-font-body);
+}
+
+.cv-llm-inspector-pop-enter-active,
+.cv-llm-inspector-pop-leave-active {
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cv-llm-inspector-pop-enter-from,
+.cv-llm-inspector-pop-leave-to {
+  transform: scale(0.96);
+  opacity: 0;
+}
+
+/* ── 头部 ─────────────────────────────────────────── */
+.cv-llm-inspector-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cv-space-sm);
+  padding: 0.6em 0.9em;
+  border-bottom: 1px solid var(--cv-surface-variant);
+  background: var(--cv-surface-container);
+}
+
+.cv-llm-inspector-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8em;
+  height: 1.8em;
+  border: none;
+  border-radius: var(--cv-radius-sm);
+  background: transparent;
+  color: var(--cv-on-surface-variant);
+  font-size: var(--cv-font-size-base);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.cv-llm-inspector-icon-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cv-on-surface) 10%, transparent);
+  color: var(--cv-on-surface);
+}
+
+.cv-llm-inspector-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── 主体：会话列表侧栏 + 详情 ─────────────────────── */
+.cv-llm-inspector-body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+/* 会话列表侧栏：宽度过渡，收起后仅留状态圆点窄条 */
+.cv-llm-inspector-list {
+  display: flex;
+  width: 12.5em;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 0.2em;
+  overflow-y: auto;
+  padding: 0.5em;
+  border-right: 1px solid var(--cv-surface-variant);
+  background: var(--cv-surface-container-low);
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1), padding 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cv-llm-inspector--rail-collapsed .cv-llm-inspector-list {
+  width: 2.6em;
+  padding: 0.5em 0.3em;
+}
+
+.cv-llm-inspector--rail-collapsed .cv-llm-inspector-list-item {
+  justify-content: center;
+  padding: 0.45em 0.25em;
+}
+
+.cv-llm-inspector--rail-collapsed .cv-llm-inspector-list-status {
+  padding-top: 0;
+}
+
+.cv-llm-inspector-list-item {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 0.4em;
+  padding: 0.45em 0.55em;
+  border: none;
+  border-radius: var(--cv-radius-sm);
+  background: transparent;
+  color: var(--cv-on-surface-variant);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.cv-llm-inspector-list-item:hover {
+  background: color-mix(in srgb, var(--cv-on-surface) 8%, transparent);
+}
+
+.cv-llm-inspector-list-item--active {
+  background: color-mix(in srgb, var(--cv-primary) 16%, transparent);
+  color: var(--cv-on-surface);
+}
+
+.cv-llm-inspector-list-status {
+  flex-shrink: 0;
+  padding-top: 0.15em;
+  font-size: var(--cv-font-size-xs);
+}
+
+.cv-llm-inspector-spinning {
+  color: var(--cv-primary);
+  animation: cv-llm-inspector-rotate 1.1s linear infinite;
+}
+
+@keyframes cv-llm-inspector-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.cv-llm-inspector-list-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.15em;
+}
+
+.cv-llm-inspector-list-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--cv-font-size-xs);
+  color: var(--cv-on-surface);
+}
+
+.cv-llm-inspector-list-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--cv-font-size-xs) * 0.88);
+  opacity: 0.8;
+}
+
+/* ── 详情区 ───────────────────────────────────────── */
+.cv-llm-inspector-detail {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cv-llm-inspector-meta {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 0.35em;
+  padding: 0.6em 0.9em;
+  border-bottom: 1px solid var(--cv-surface-variant);
+  background: var(--cv-surface-container);
+}
+
+.cv-llm-inspector-meta-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--cv-font-size-xs);
+  font-weight: 600;
+  color: var(--cv-on-surface);
+}
+
+.cv-llm-inspector-meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em 0.6em;
+}
+
+.cv-llm-inspector-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  font-size: calc(var(--cv-font-size-xs) * 0.88);
+  color: var(--cv-on-surface-variant);
+}
+
+/* ── 对话流 ───────────────────────────────────────── */
+.cv-llm-inspector-stream {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.55em;
+  overflow-y: auto;
+  padding: 0.75em;
+}
+
+/* ── 气泡 ─────────────────────────────────────────── */
+.cv-llm-inspector-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  max-width: 92%;
+  border: 1px solid var(--cv-outline-variant);
+  border-radius: var(--cv-radius);
+  padding: 0.5em 0.65em;
+  font-size: var(--cv-font-size-xs);
+}
+
+.cv-llm-inspector-bubble--sent {
+  align-self: flex-end;
+  border-color: color-mix(in srgb, var(--cv-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--cv-primary) 8%, var(--cv-surface-container));
+}
+
+.cv-llm-inspector-bubble--received {
+  align-self: flex-start;
+  background: var(--cv-surface-container-high);
+}
+
+.cv-llm-inspector-bubble--thinking {
+  align-self: flex-start;
+  border-style: dashed;
+  background: transparent;
+  color: var(--cv-on-surface-variant);
+}
+
+.cv-llm-inspector-bubble--error {
+  align-self: flex-start;
+  border-color: color-mix(in srgb, var(--cvp-red-500) 45%, transparent);
+  background: color-mix(in srgb, var(--cvp-red-500) 8%, var(--cv-surface-container));
+}
+
+.cv-llm-inspector-bubble-header {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.4em;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+}
+
+.cv-llm-inspector-role-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0.1em 0.45em;
+  border-radius: 999px;
+  font-size: calc(var(--cv-font-size-xs) * 0.88);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.cv-llm-inspector-role--system {
+  background: color-mix(in srgb, var(--cv-on-surface-variant) 18%, transparent);
+  color: var(--cv-on-surface-variant);
+}
+
+.cv-llm-inspector-role--user {
+  background: color-mix(in srgb, var(--cv-primary) 22%, transparent);
+  color: var(--cv-primary);
+}
+
+.cv-llm-inspector-role--assistant {
+  background: color-mix(in srgb, var(--cvp-green-500) 20%, transparent);
+  color: var(--cvp-green-500);
+}
+
+.cv-llm-inspector-role--thinking {
+  background: color-mix(in srgb, var(--cvp-purple-400) 18%, transparent);
+  color: var(--cvp-purple-400);
+}
+
+.cv-llm-inspector-role--error {
+  background: color-mix(in srgb, var(--cvp-red-500) 20%, transparent);
+  color: var(--cvp-red-500);
+}
+
+/* 折叠态预览：单行省略 */
+.cv-llm-inspector-bubble-preview {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-on-surface-variant);
+}
+
+.cv-llm-inspector-bubble-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.25em;
+  color: var(--cv-on-surface-variant);
+  font-size: calc(var(--cv-font-size-xs) * 0.88);
+  white-space: nowrap;
+}
+
+.cv-llm-inspector-bubble-header:hover .cv-llm-inspector-bubble-toggle {
+  color: var(--cv-primary);
+}
+
+/* 展开态完整内容 */
+.cv-llm-inspector-bubble-content {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 0.5em 0.6em;
+  border-radius: var(--cv-radius-sm);
+  background: color-mix(in srgb, var(--cv-on-surface) 5%, transparent);
+  color: var(--cv-on-surface);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cv-llm-inspector-thinking-content {
+  max-height: 30vh;
+  overflow-y: auto;
+  padding: 0.5em 0.6em;
+  border-radius: var(--cv-radius-sm);
+  color: var(--cv-on-surface-variant);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 回复正文：全宽展示，不用滚动裁切 */
+.cv-llm-inspector-bubble--received .cv-llm-inspector-bubble-content {
+  max-height: none;
+  overflow-y: visible;
+}
+
+/* 流式光标 */
+.cv-llm-inspector-cursor {
+  display: inline-block;
+  width: 0.45em;
+  margin-left: 0.1em;
+  background: var(--cv-primary);
+  animation: cv-llm-inspector-blink 1s step-start infinite;
+  vertical-align: text-bottom;
+}
+
+@keyframes cv-llm-inspector-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* 等待响应 */
+.cv-llm-inspector-waiting {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  color: var(--cv-on-surface-variant);
+  font-size: var(--cv-font-size-xs);
+}
+
+.cv-llm-inspector-waiting i {
+  color: var(--cv-primary);
+  animation: cv-llm-inspector-rotate 1.1s linear infinite;
+}
+
+/* ── 空态 ─────────────────────────────────────────── */
+.cv-llm-inspector-empty {
+  display: flex;
+  margin: auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3em;
+  padding: 1.5em 1em;
+  color: var(--cv-on-surface-variant);
+  font-size: var(--cv-font-size-xs);
+  text-align: center;
+}
+
+.cv-llm-inspector-empty i {
+  font-size: 1.4em;
+  opacity: 0.7;
+}
+
+.cv-llm-inspector-empty-hint {
+  opacity: 0.75;
+  font-size: calc(var(--cv-font-size-xs) * 0.9);
+}
+
+/* ── 滚动条 ───────────────────────────────────────── */
+.cv-llm-inspector .cv-llm-inspector-list::-webkit-scrollbar,
+.cv-llm-inspector .cv-llm-inspector-stream::-webkit-scrollbar,
+.cv-llm-inspector .cv-llm-inspector-bubble-content::-webkit-scrollbar,
+.cv-llm-inspector .cv-llm-inspector-thinking-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.cv-llm-inspector .cv-llm-inspector-list::-webkit-scrollbar-thumb,
+.cv-llm-inspector .cv-llm-inspector-stream::-webkit-scrollbar-thumb,
+.cv-llm-inspector .cv-llm-inspector-bubble-content::-webkit-scrollbar-thumb,
+.cv-llm-inspector .cv-llm-inspector-thinking-content::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--cv-on-surface) 22%, transparent);
+}
+
+/* ── 移动端：居中弹窗（占屏约 85%，不再全屏） ─────── */
+@media (max-width: 640px) {
+  .cv-llm-inspector {
+    width: calc(100vw - 1.5rem);
+    height: min(85svh, 30rem);
+    /* 与外壳同公式：50svh 减去自身高度一半实现垂直居中 */
+    top: calc(50svh - min(85svh, 30rem) / 2);
+    left: 0.75rem;
+  }
+
+  .cv-llm-inspector-list {
+    width: 9em;
+  }
+
+  .cv-llm-inspector--rail-collapsed .cv-llm-inspector-list {
+    width: 2.6em;
+  }
+
+  .cv-llm-inspector-bubble {
+    max-width: 100%;
+  }
+}

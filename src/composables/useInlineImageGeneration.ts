@@ -26,8 +26,11 @@ import {
 } from '@/services/sillytavern/chat-dom';
 import {
   buildPromptLlmTriggerContext,
+  type PromptLlmInspectorHooks,
   generatePromptFromRuntimeContext,
 } from '@/services/prompt-llm/runtime-request';
+import { buildLlmInspectorLabel, buildLlmInspectorRequestSnapshot } from '@/services/prompt-llm/llm-inspector';
+import { useLlmInspectorStore } from '@/store/llm-inspector';
 import { buildPromptLlmSchemaFields, getPromptLlmRequestError } from '@/services/tavern-helper/prompt-llm';
 import { useSettingsStore } from '@/store/settings';
 import { getCurrentInstance, ref } from 'vue';
@@ -84,6 +87,8 @@ export function useInlineImageGeneration(
   const settingsStore = useSettingsStore();
   /** 生图耗时统计(仅统计内联生图的图像请求阶段,不含 Prompt LLM 与测试页生图) */
   const statsStore = useGenerationStatsStore();
+  /** LLM 请求监视(仅捕获内联生图的 Prompt LLM 交互) */
+  const llmInspectorStore = useLlmInspectorStore();
   /** 当前组件实例上下文,用于把 PrimeVue Button 渲染到聊天内联 DOM */
   const appContext = getCurrentInstance()?.appContext;
   /** 生成会话与取消控制 */
@@ -826,8 +831,28 @@ export function useInlineImageGeneration(
       settings.promptLlmMessagePresets,
       settings.promptProfiles,
       schemaFields,
-      { generationId: session.promptGenerationId, triggerContext: buildPromptLlmTriggerContext(settings, imageSource) },
+      {
+        generationId: session.promptGenerationId,
+        triggerContext: buildPromptLlmTriggerContext(settings, imageSource),
+        inspector: buildLlmInspectorHooks(context, session.promptGenerationId),
+      },
     ));
+  }
+
+  /**
+   * 构建内联生图的 LLM 监视钩子（发送侧捕获；响应侧由 store 的事件订阅驱动）
+   * @param context Prompt LLM 上下文
+   * @param generationId 请求标识
+   * @returns 监视钩子
+   */
+  function buildLlmInspectorHooks(context: PromptLlmContext, generationId: string): PromptLlmInspectorHooks {
+    return {
+      onRequestBuilt: (request, account) => llmInspectorStore.recordRequest(
+        buildLlmInspectorRequestSnapshot(generationId, request, account, buildLlmInspectorLabel(context)),
+      ),
+      onSucceeded: (rawText, accountName) => llmInspectorStore.markSucceeded(generationId, rawText, accountName),
+      onFailed: error => llmInspectorStore.markFailed(generationId, error),
+    };
   }
 
   /**
