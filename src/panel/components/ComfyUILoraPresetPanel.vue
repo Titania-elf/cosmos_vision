@@ -31,11 +31,10 @@
             :key="lora.id"
             class="border-b border-(--cv-surface-variant) pb-(--cv-space-lg) last:border-b-0 last:pb-0"
           >
-            <!-- 名称行：LoRA 名称常显，不截断于 Select 内 -->
-            <div class="flex items-center gap-(--cv-space-md)">
-              <ToggleSwitch
+            <!-- 单行：迷你开关 + 名称 + 内联强度 + 更多 -->
+            <div class="flex items-center gap-(--cv-space-sm)">
+              <CvMiniToggleSwitch
                 :model-value="lora.enabled"
-                class="shrink-0 self-center"
                 :aria-label="`${lora.name || '未命名 LoRA'} 启用状态`"
                 @update:model-value="updateLora(lora.id, { enabled: Boolean($event) })"
               />
@@ -46,58 +45,62 @@
               >
                 {{ lora.name || '未选择 LoRA' }}
               </span>
-              <InputNumber
+              <CvInlineNumber
                 :model-value="lora.strength"
                 :min="-5"
                 :max="5"
                 :step="0.05"
-                :min-fraction-digits="0"
                 :max-fraction-digits="3"
-                :use-grouping="false"
-                fluid
-                placeholder="强度"
-                class="cv-lora-strength w-20 shrink-0 min-w-0"
-                :pt="loraStrengthPt"
                 aria-label="LoRA 强度"
                 @update:model-value="updateLora(lora.id, { strength: normalizeStrength($event) })"
               />
-              <Button
-                icon="fa-solid fa-wand-magic-sparkles"
-                severity="secondary"
-                variant="text"
-                rounded
-                class="shrink-0 self-center"
-                :class="{ 'text-(--cvp-primary-color)': lora.triggerWords.length }"
-                title="触发词"
-                aria-label="编辑 LoRA 触发词"
-                @click="toggleTriggerWords(lora.id)"
-              />
-              <!-- 更换：点开内联 Select 选新 LoRA，选完自动收起 -->
-              <Button
-                v-if="lora.name && !swappingLoraIds.has(lora.id)"
-                icon="fa-solid fa-arrow-right-arrow-left"
-                severity="secondary"
-                variant="text"
-                rounded
-                class="shrink-0 self-center"
-                title="更换 LoRA"
-                aria-label="更换 LoRA"
-                @click="toggleSwap(lora.id)"
-              />
-              <Button
-                icon="fa-solid fa-trash"
-                severity="danger"
-                variant="text"
-                rounded
-                class="shrink-0 self-center"
-                aria-label="删除 LoRA"
-                @click="removeLora(lora.id)"
+              <CvMiniButton
+                :tone="lora.triggerWords.length ? 'primary' : 'neutral'"
+                icon="fa-solid fa-ellipsis"
+                title="更多操作"
+                aria-label="更多操作"
+                @click="toggleMoreMenu(lora.id, $event)"
               />
             </div>
-            <!-- 名称过长或点「更换」时：独立一行展示 Select -->
+            <!-- 更多菜单：触发词 / 更换 / 删除 -->
+            <Popover
+              v-if="moreMenuIds.has(lora.id)"
+              :ref="el => setMoreMenuRef(lora.id, el)"
+              append-to="body"
+            >
+              <div class="flex w-[10rem] flex-col gap-(--cv-space-2xs) p-(--cv-space-xs)">
+                <button
+                  type="button"
+                  class="flex w-full cursor-pointer items-center gap-(--cv-space-md) rounded-(--cv-radius-sm) border-0 bg-transparent px-(--cv-space-lg) py-(--cv-space-sm) text-left text-(length:--cv-font-size-xs) text-(--cv-on-surface) transition-colors duration-150 hover:bg-(--cv-surface-container-highest)"
+                  :class="{ 'text-(--cvp-primary-color)': lora.triggerWords.length }"
+                  @click="onMoreAction(lora.id, () => toggleTriggerWords(lora.id))"
+                >
+                  <i class="fa-solid fa-wand-magic-sparkles w-4 text-center" aria-hidden="true" />
+                  触发词{{ lora.triggerWords.length ? `（${lora.triggerWords.length}）` : '' }}
+                </button>
+                <button
+                  v-if="lora.name"
+                  type="button"
+                  class="flex w-full cursor-pointer items-center gap-(--cv-space-md) rounded-(--cv-radius-sm) border-0 bg-transparent px-(--cv-space-lg) py-(--cv-space-sm) text-left text-(length:--cv-font-size-xs) text-(--cv-on-surface) transition-colors duration-150 hover:bg-(--cv-surface-container-highest)"
+                  @click="onMoreAction(lora.id, () => toggleSwap(lora.id))"
+                >
+                  <i class="fa-solid fa-arrow-right-arrow-left w-4 text-center" aria-hidden="true" />
+                  更换
+                </button>
+                <button
+                  type="button"
+                  class="flex w-full cursor-pointer items-center gap-(--cv-space-md) rounded-(--cv-radius-sm) border-0 bg-transparent px-(--cv-space-lg) py-(--cv-space-sm) text-left text-(length:--cv-font-size-xs) text-(--cvp-red-500) transition-colors duration-150 hover:bg-(--cv-surface-container-highest)"
+                  @click="onMoreAction(lora.id, () => removeLora(lora.id))"
+                >
+                  <i class="fa-solid fa-trash w-4 text-center" aria-hidden="true" />
+                  删除
+                </button>
+              </div>
+            </Popover>
+            <!-- 未选择或点「更换」时：独立一行展示 Select -->
             <div
               v-if="!lora.name || swappingLoraIds.has(lora.id)"
-              class="mt-(--cv-space-md) pl-[calc(var(--cv-space-2xl)+1.5em)] max-[32rem]:pl-0"
+              class="mt-(--cv-space-md) pl-(--cv-space-2xl) max-[32rem]:pl-0"
             >
               <Select
                 :model-value="lora.name"
@@ -115,7 +118,7 @@
                 @hide="closeSwap(lora.id)"
               />
             </div>
-            <div v-if="expandedTriggerWordIds.has(lora.id)" class="mt-(--cv-space-md) pl-[calc(var(--cv-space-2xl)+1.5em)] max-[32rem]:pl-0">
+            <div v-if="expandedTriggerWordIds.has(lora.id)" class="mt-(--cv-space-md) pl-(--cv-space-2xl) max-[32rem]:pl-0">
               <InputText
                 :model-value="lora.triggerWords.join(', ')"
                 placeholder="触发词（逗号分隔，多个；生图时自动前置到正向提示词）"
@@ -179,6 +182,9 @@ import {
 } from '@/constants/comfyui';
 import PresetSelector from '@/panel/components/PresetSelector.vue';
 import ComfyUILoraBulkAddDialog from '@/panel/components/comfyui/ComfyUILoraBulkAddDialog.vue';
+import CvInlineNumber from '@/panel/components/CvInlineNumber.vue';
+import CvMiniButton from '@/panel/components/CvMiniButton.vue';
+import CvMiniToggleSwitch from '@/panel/components/CvMiniToggleSwitch.vue';
 import { findComfyUILoraPreset } from '@/services/comfyui/lora-presets';
 
 interface TextOption {
@@ -192,11 +198,6 @@ interface PresetOption {
 }
 
 const defaultPresetId = DEFAULT_COMFYUI_LORA_PRESET_ID;
-
-/** LoRA 强度 InputNumber：内嵌 input 全宽居中，避免 :deep(.cv-prime-field) */
-const loraStrengthPt = {
-  pcInputText: { root: { class: 'cv-prime-field w-full text-center' } },
-} as const;
 
 const props = defineProps<{
   presetSettings: ComfyUILoraPresetSettings;
@@ -222,6 +223,9 @@ const expandedTriggerWordIds = ref<ReadonlySet<string>>(new Set());
 const swappingLoraIds = ref<ReadonlySet<string>>(new Set());
 /** 批量添加弹窗开合状态 */
 const isBulkAddVisible = ref(false);
+/** 「更多」菜单打开中的条目 ID 与 Popover 实例 */
+const moreMenuIds = ref<ReadonlySet<string>>(new Set());
+const moreMenuRefs = new Map<string, { toggle: (event: Event) => void; hide: () => void }>();
 
 /**
  * 切换触发词编辑区的展开状态
@@ -232,6 +236,52 @@ function toggleTriggerWords(id: string): void {
   if (next.has(id)) next.delete(id);
   else next.add(id);
   expandedTriggerWordIds.value = next;
+}
+
+/**
+ * 打开/关闭「更多」菜单
+ * @param id LoRA 条目 ID
+ * @param event 触发事件（传给 Popover 定位）
+ */
+function toggleMoreMenu(id: string, event: Event): void {
+  if (moreMenuIds.value.has(id)) {
+    moreMenuRefs.get(id)?.hide();
+    return;
+  }
+  closeAllMoreMenus();
+  const next = new Set(moreMenuIds.value);
+  next.add(id);
+  moreMenuIds.value = next;
+  nextTick(() => moreMenuRefs.get(id)?.toggle(event));
+}
+
+/**
+ * 收起全部「更多」菜单
+ */
+function closeAllMoreMenus(): void {
+  moreMenuRefs.forEach(menu => menu.hide());
+  moreMenuIds.value = new Set();
+}
+
+/**
+ * 「更多」菜单项点击：先收起菜单再执行动作
+ * @param id LoRA 条目 ID
+ * @param action 动作
+ */
+function onMoreAction(id: string, action: () => void): void {
+  moreMenuRefs.get(id)?.hide();
+  closeAllMoreMenus();
+  action();
+}
+
+/**
+ * 登记 Popover 实例（模板 ref 回调）
+ * @param id LoRA 条目 ID
+ * @param el Popover 实例或 null（卸载）
+ */
+function setMoreMenuRef(id: string, el: unknown): void {
+  if (el) moreMenuRefs.set(id, el as { toggle: (event: Event) => void; hide: () => void });
+  else moreMenuRefs.delete(id);
 }
 
 /**
