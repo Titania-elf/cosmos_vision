@@ -31,15 +31,74 @@
             :key="lora.id"
             class="border-b border-(--cv-surface-variant) pb-(--cv-space-lg) last:border-b-0 last:pb-0"
           >
-            <div
-              class="grid grid-cols-[auto_minmax(0,1fr)_5.75rem_auto] items-center gap-(--cv-space-md) max-[32rem]:grid-cols-[auto_minmax(0,1fr)_auto] max-[32rem]:[&_.cv-lora-strength]:col-start-2"
-            >
+            <!-- 名称行：LoRA 名称常显，不截断于 Select 内 -->
+            <div class="flex items-center gap-(--cv-space-md)">
               <ToggleSwitch
                 :model-value="lora.enabled"
-                class="self-center"
+                class="shrink-0 self-center"
                 :aria-label="`${lora.name || '未命名 LoRA'} 启用状态`"
                 @update:model-value="updateLora(lora.id, { enabled: Boolean($event) })"
               />
+              <span
+                class="min-w-0 flex-1 overflow-hidden font-mono text-(length:--cv-font-size-xs) text-(--cv-on-surface) text-ellipsis whitespace-nowrap"
+                :class="{ 'text-(--cv-on-surface-variant)': !lora.name }"
+                :title="lora.name || '未选择 LoRA'"
+              >
+                {{ lora.name || '未选择 LoRA' }}
+              </span>
+              <InputNumber
+                :model-value="lora.strength"
+                :min="-5"
+                :max="5"
+                :step="0.05"
+                :min-fraction-digits="0"
+                :max-fraction-digits="3"
+                :use-grouping="false"
+                fluid
+                placeholder="强度"
+                class="cv-lora-strength w-20 shrink-0 min-w-0"
+                :pt="loraStrengthPt"
+                aria-label="LoRA 强度"
+                @update:model-value="updateLora(lora.id, { strength: normalizeStrength($event) })"
+              />
+              <Button
+                icon="fa-solid fa-wand-magic-sparkles"
+                severity="secondary"
+                variant="text"
+                rounded
+                class="shrink-0 self-center"
+                :class="{ 'text-(--cvp-primary-color)': lora.triggerWords.length }"
+                title="触发词"
+                aria-label="编辑 LoRA 触发词"
+                @click="toggleTriggerWords(lora.id)"
+              />
+              <!-- 更换：点开内联 Select 选新 LoRA，选完自动收起 -->
+              <Button
+                v-if="lora.name && !swappingLoraIds.has(lora.id)"
+                icon="fa-solid fa-arrow-right-arrow-left"
+                severity="secondary"
+                variant="text"
+                rounded
+                class="shrink-0 self-center"
+                title="更换 LoRA"
+                aria-label="更换 LoRA"
+                @click="toggleSwap(lora.id)"
+              />
+              <Button
+                icon="fa-solid fa-trash"
+                severity="danger"
+                variant="text"
+                rounded
+                class="shrink-0 self-center"
+                aria-label="删除 LoRA"
+                @click="removeLora(lora.id)"
+              />
+            </div>
+            <!-- 名称过长或点「更换」时：独立一行展示 Select -->
+            <div
+              v-if="!lora.name || swappingLoraIds.has(lora.id)"
+              class="mt-(--cv-space-md) pl-[calc(var(--cv-space-2xl)+1.5em)] max-[32rem]:pl-0"
+            >
               <Select
                 :model-value="lora.name"
                 :options="props.loraOptions"
@@ -51,45 +110,12 @@
                 :loading="props.isLoadingLoras"
                 aria-label="LoRA 文件"
                 filter
-                @update:model-value="updateLora(lora.id, { name: String($event ?? '') })"
-              />
-              <InputNumber
-                :model-value="lora.strength"
-                :min="-5"
-                :max="5"
-                :step="0.05"
-                :min-fraction-digits="0"
-                :max-fraction-digits="3"
-                :use-grouping="false"
-                fluid
-                placeholder="强度"
-                class="cv-lora-strength min-w-0"
-                :pt="loraStrengthPt"
-                aria-label="LoRA 强度"
-                @update:model-value="updateLora(lora.id, { strength: normalizeStrength($event) })"
-              />
-              <Button
-                icon="fa-solid fa-wand-magic-sparkles"
-                severity="secondary"
-                variant="text"
-                rounded
-                class="self-center"
-                :class="{ 'text-(--cvp-primary-color)': lora.triggerWords.length }"
-                title="触发词"
-                aria-label="编辑 LoRA 触发词"
-                @click="toggleTriggerWords(lora.id)"
-              />
-              <Button
-                icon="fa-solid fa-trash"
-                severity="danger"
-                variant="outlined"
-                rounded
-                class="self-center"
-                aria-label="删除 LoRA"
-                @click="removeLora(lora.id)"
+                autofocus
+                @update:model-value="selectSwapLora(lora.id, String($event ?? ''))"
+                @hide="closeSwap(lora.id)"
               />
             </div>
-            <div v-if="expandedTriggerWordIds.has(lora.id)" class="mt-(--cv-space-md) pl-(--cv-space-2xl)">
+            <div v-if="expandedTriggerWordIds.has(lora.id)" class="mt-(--cv-space-md) pl-[calc(var(--cv-space-2xl)+1.5em)] max-[32rem]:pl-0">
               <InputText
                 :model-value="lora.triggerWords.join(', ')"
                 placeholder="触发词（逗号分隔，多个；生图时自动前置到正向提示词）"
@@ -107,17 +133,37 @@
           当前分组暂无 LoRA
         </div>
 
-        <button
-          type="button"
-          class="mb-(--cv-space-lg) flex w-full cursor-pointer items-center justify-center gap-(--cv-space-sm) rounded-(--cv-radius-sm) border-(length:--cv-border-width) border-dashed border-(--cv-surface-variant) bg-[color-mix(in_srgb,var(--cv-surface-container-low)_42%,transparent)] py-(--cv-space-md) text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant) transition-all duration-200 ease-in-out hover:border-(--cv-outline) hover:bg-(--cv-surface-container-low) hover:text-(--cvp-primary-color)"
-          @click="addLora"
-        >
-          <i class="fa-solid fa-plus" />
-          添加 LoRA
-        </button>
+        <div class="flex flex-col gap-(--cv-space-sm)">
+          <button
+            type="button"
+            class="flex w-full cursor-pointer items-center justify-center gap-(--cv-space-sm) rounded-(--cv-radius-sm) border-(length:--cv-border-width) border-dashed border-(--cv-surface-variant) bg-[color-mix(in_srgb,var(--cv-surface-container-low)_42%,transparent)] py-(--cv-space-md) text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant) transition-all duration-200 ease-in-out hover:border-(--cv-outline) hover:bg-(--cv-surface-container-low) hover:text-(--cvp-primary-color)"
+            @click="addLora"
+          >
+            <i class="fa-solid fa-plus" />
+            添加 LoRA
+          </button>
+          <button
+            v-if="activePreset"
+            type="button"
+            class="flex w-full cursor-pointer items-center justify-center gap-(--cv-space-sm) rounded-(--cv-radius-sm) border-(length:--cv-border-width) border-dashed border-(--cv-surface-variant) bg-[color-mix(in_srgb,var(--cv-surface-container-low)_42%,transparent)] py-(--cv-space-md) text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant) transition-all duration-200 ease-in-out hover:border-(--cv-outline) hover:bg-(--cv-surface-container-low) hover:text-(--cvp-primary-color)"
+            :class="{ 'pointer-events-none opacity-45': !props.loraOptions.length }"
+            @click="isBulkAddVisible = true"
+          >
+            <i class="fa-solid fa-list-check" />
+            批量添加
+          </button>
+        </div>
       </div>
     </div>
   </div>
+
+  <!-- 批量添加弹窗 -->
+  <ComfyUILoraBulkAddDialog
+    v-model:visible="isBulkAddVisible"
+    :options="props.loraOptions"
+    :existing-loras="activePreset?.loras ?? []"
+    @confirm="addLorasBulk"
+  />
 </template>
 
 <script setup lang="ts">
@@ -132,6 +178,7 @@ import {
   type ComfyUILoraSetting,
 } from '@/constants/comfyui';
 import PresetSelector from '@/panel/components/PresetSelector.vue';
+import ComfyUILoraBulkAddDialog from '@/panel/components/comfyui/ComfyUILoraBulkAddDialog.vue';
 import { findComfyUILoraPreset } from '@/services/comfyui/lora-presets';
 
 interface TextOption {
@@ -171,6 +218,10 @@ const activePreset = computed(() =>
 );
 /** 已展开触发词编辑的 LoRA 条目 ID */
 const expandedTriggerWordIds = ref<ReadonlySet<string>>(new Set());
+/** 正在更换 LoRA（显示内联 Select）的条目 ID */
+const swappingLoraIds = ref<ReadonlySet<string>>(new Set());
+/** 批量添加弹窗开合状态 */
+const isBulkAddVisible = ref(false);
 
 /**
  * 切换触发词编辑区的展开状态
@@ -181,6 +232,38 @@ function toggleTriggerWords(id: string): void {
   if (next.has(id)) next.delete(id);
   else next.add(id);
   expandedTriggerWordIds.value = next;
+}
+
+/**
+ * 切换内联「更换 LoRA」Select 的展开状态
+ * @param id LoRA 条目 ID
+ */
+function toggleSwap(id: string): void {
+  const next = new Set(swappingLoraIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  swappingLoraIds.value = next;
+}
+
+/**
+ * 关闭内联更换 Select（下拉收起或选择完成）
+ * @param id LoRA 条目 ID
+ */
+function closeSwap(id: string): void {
+  if (!swappingLoraIds.value.has(id)) return;
+  const next = new Set(swappingLoraIds.value);
+  next.delete(id);
+  swappingLoraIds.value = next;
+}
+
+/**
+ * 选择更换后的 LoRA 并收起 Select
+ * @param id LoRA 条目 ID
+ * @param name 新 LoRA 名称
+ */
+function selectSwapLora(id: string, name: string): void {
+  updateLora(id, { name });
+  closeSwap(id);
 }
 
 /**
@@ -267,6 +350,19 @@ function deletePreset(id: string): void {
 function addLora(): void {
   if (!activePreset.value) return;
   updatePreset(activePreset.value.id, preset => ({ ...preset, loras: [...preset.loras, createBlankLora()] }));
+}
+
+/**
+ * 批量添加 LoRA（默认禁用，需手动启用）
+ * @param names LoRA 名称列表
+ */
+function addLorasBulk(names: string[]): void {
+  if (!activePreset.value || !names.length) return;
+  updatePreset(activePreset.value.id, preset => ({
+    ...preset,
+    loras: [...preset.loras, ...names.map(name => createComfyUILoraSetting(uuidv4(), { name, enabled: false }))],
+  }));
+  toastr.success(`已批量添加 ${names.length} 个 LoRA（默认禁用）`);
 }
 
 /**
