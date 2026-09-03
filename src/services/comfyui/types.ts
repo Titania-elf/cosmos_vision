@@ -208,6 +208,12 @@ export interface ComfyUIRequestSnapshot {
   seedValues: ComfyUISeedModeTarget[];
   imageBindings?: ComfyUIImageBindingTarget[];
   loras: ComfyUILoraSnapshot[];
+  /** 生图时使用的工作流预设名（旧快照可能缺失） */
+  workflowPresetName?: string;
+  /** 生图时激活的 LoRA 预设组名（旧快照可能缺失） */
+  loraPresetName?: string;
+  /** 生图时工作流的分辨率（旧快照可能缺失） */
+  resolution?: { width: number; height: number };
 }
 
 /** ComfyUI 已解析请求 */

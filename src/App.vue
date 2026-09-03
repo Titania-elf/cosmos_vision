@@ -35,6 +35,7 @@
     :dark-mode="darkMode"
     :enable-characters="textInputDialogState.enableCharacters"
     :artist-tags="textInputDialogState.artistTags"
+    :lora-trigger-words="textInputDialogState.loraTriggerWords"
     @submit="handleTextInputDialog"
   />
   <ImageDownloadDialog
@@ -194,6 +195,8 @@ interface TextInputDialogState {
   characters: TextInputCharacterDraft[];
   /** 可选画师串列表（仅编辑提示词后生图弹窗传入） */
   artistTags?: { name: string; text: string }[];
+  /** 当前激活 LoRA 组的触发词（仅编辑提示词后生图弹窗传入） */
+  loraTriggerWords?: string[];
   resolve: (value: TextInputDialogSubmitValue | null) => void;
 }
 
@@ -440,6 +443,7 @@ function showPromptPairDialog(options: InlinePromptPairInputOptions): Promise<In
       enableCharacters: Boolean(options.enableCharacters),
       characters: toTextInputCharacterDrafts(options.charactersDefaultValue ?? []),
       artistTags: options.artistTags,
+      loraTriggerWords: options.loraTriggerWords,
       resolve: result =>
         resolve(
           result

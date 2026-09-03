@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { InlineGalleryGroupView, type InlineGalleryItem } from '@/composables/inlineImageGalleryView';
+import InlineGenerationSchemeDialog from '@/panel/components/comfyui/InlineGenerationSchemeDialog.vue';
 import {
   invokeDownload,
   invokeGenerateEditable,
@@ -33,6 +34,20 @@ const activeItemId = ref('');
 const loading = ref(true);
 const objectUrls = new Set<string>();
 const isLost = ref(false);
+/** 生图方案弹窗开合状态 */
+const isSchemeDialogVisible = ref(false);
+/** 生图方案弹窗展示的快照（当前焦点图） */
+const schemeDialogSnapshot = ref<InlineGalleryItem['promptSnapshot'] | null>(null);
+
+/**
+ * 打开生图方案切换弹窗
+ * @param item 当前焦点图片
+ */
+function openGenerationScheme(item: InlineGalleryItem): void {
+  if (!settingsStore.savedSettings.enabled) return;
+  schemeDialogSnapshot.value = item.promptSnapshot;
+  isSchemeDialogVisible.value = true;
+}
 
 /** 画廊宿主 class：随 darkMode 响应式切换 */
 const hostClass = computed(() =>
@@ -243,9 +258,13 @@ onUnmounted(() => {
       :generate-last="item => invokeGenerateLast(mount, item)"
       :generate-fresh="() => invokeGenerateFresh(mount)"
       :generate-with-editable-prompt="item => invokeGenerateEditable(mount, item)"
+      :show-generation-scheme="openGenerationScheme"
       :download-image="item => invokeDownload(item)"
     />
   </div>
+
+  <!-- 生图方案切换弹窗 -->
+  <InlineGenerationSchemeDialog v-model:visible="isSchemeDialogVisible" :snapshot="schemeDialogSnapshot" />
 </template>
 
 <style scoped>

@@ -29,51 +29,75 @@
           <div
             v-for="lora in activePreset.loras"
             :key="lora.id"
-            class="grid grid-cols-[auto_minmax(0,1fr)_5.75rem_auto] items-center gap-(--cv-space-md) border-b border-(--cv-surface-variant) pb-(--cv-space-lg) last:border-b-0 last:pb-0 max-[32rem]:grid-cols-[auto_minmax(0,1fr)_auto] max-[32rem]:[&_.cv-lora-strength]:col-start-2"
+            class="border-b border-(--cv-surface-variant) pb-(--cv-space-lg) last:border-b-0 last:pb-0"
           >
-            <ToggleSwitch
-              :model-value="lora.enabled"
-              class="self-center"
-              :aria-label="`${lora.name || '未命名 LoRA'} 启用状态`"
-              @update:model-value="updateLora(lora.id, { enabled: Boolean($event) })"
-            />
-            <Select
-              :model-value="lora.name"
-              :options="props.loraOptions"
-              option-label="label"
-              option-value="value"
-              placeholder="选择 ComfyUI LoRA"
-              class="w-full max-w-full min-w-0"
-              fluid
-              :loading="props.isLoadingLoras"
-              aria-label="LoRA 文件"
-              filter
-              @update:model-value="updateLora(lora.id, { name: String($event ?? '') })"
-            />
-            <InputNumber
-              :model-value="lora.strength"
-              :min="-5"
-              :max="5"
-              :step="0.05"
-              :min-fraction-digits="0"
-              :max-fraction-digits="3"
-              :use-grouping="false"
-              fluid
-              placeholder="强度"
-              class="cv-lora-strength min-w-0"
-              :pt="loraStrengthPt"
-              aria-label="LoRA 强度"
-              @update:model-value="updateLora(lora.id, { strength: normalizeStrength($event) })"
-            />
-            <Button
-              icon="fa-solid fa-trash"
-              severity="danger"
-              variant="outlined"
-              rounded
-              class="self-center"
-              aria-label="删除 LoRA"
-              @click="removeLora(lora.id)"
-            />
+            <div
+              class="grid grid-cols-[auto_minmax(0,1fr)_5.75rem_auto] items-center gap-(--cv-space-md) max-[32rem]:grid-cols-[auto_minmax(0,1fr)_auto] max-[32rem]:[&_.cv-lora-strength]:col-start-2"
+            >
+              <ToggleSwitch
+                :model-value="lora.enabled"
+                class="self-center"
+                :aria-label="`${lora.name || '未命名 LoRA'} 启用状态`"
+                @update:model-value="updateLora(lora.id, { enabled: Boolean($event) })"
+              />
+              <Select
+                :model-value="lora.name"
+                :options="props.loraOptions"
+                option-label="label"
+                option-value="value"
+                placeholder="选择 ComfyUI LoRA"
+                class="w-full max-w-full min-w-0"
+                fluid
+                :loading="props.isLoadingLoras"
+                aria-label="LoRA 文件"
+                filter
+                @update:model-value="updateLora(lora.id, { name: String($event ?? '') })"
+              />
+              <InputNumber
+                :model-value="lora.strength"
+                :min="-5"
+                :max="5"
+                :step="0.05"
+                :min-fraction-digits="0"
+                :max-fraction-digits="3"
+                :use-grouping="false"
+                fluid
+                placeholder="强度"
+                class="cv-lora-strength min-w-0"
+                :pt="loraStrengthPt"
+                aria-label="LoRA 强度"
+                @update:model-value="updateLora(lora.id, { strength: normalizeStrength($event) })"
+              />
+              <Button
+                icon="fa-solid fa-wand-magic-sparkles"
+                severity="secondary"
+                variant="text"
+                rounded
+                class="self-center"
+                :class="{ 'text-(--cvp-primary-color)': lora.triggerWords.length }"
+                title="触发词"
+                aria-label="编辑 LoRA 触发词"
+                @click="toggleTriggerWords(lora.id)"
+              />
+              <Button
+                icon="fa-solid fa-trash"
+                severity="danger"
+                variant="outlined"
+                rounded
+                class="self-center"
+                aria-label="删除 LoRA"
+                @click="removeLora(lora.id)"
+              />
+            </div>
+            <div v-if="expandedTriggerWordIds.has(lora.id)" class="mt-(--cv-space-md) pl-(--cv-space-2xl)">
+              <InputText
+                :model-value="lora.triggerWords.join(', ')"
+                placeholder="触发词（逗号分隔，多个；生图时自动前置到正向提示词）"
+                class="w-full"
+                aria-label="LoRA 触发词"
+                @update:model-value="updateLora(lora.id, { triggerWords: parseTriggerWords(String($event ?? '')) })"
+              />
+            </div>
           </div>
         </Fluid>
         <div
@@ -145,6 +169,31 @@ const presetOptions = computed<PresetOption[]>(() => props.presetSettings.preset
 const activePreset = computed(() =>
   findComfyUILoraPreset(props.presetSettings.presets, props.presetSettings.activePresetId),
 );
+/** 已展开触发词编辑的 LoRA 条目 ID */
+const expandedTriggerWordIds = ref<ReadonlySet<string>>(new Set());
+
+/**
+ * 切换触发词编辑区的展开状态
+ * @param id LoRA 条目 ID
+ */
+function toggleTriggerWords(id: string): void {
+  const next = new Set(expandedTriggerWordIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedTriggerWordIds.value = next;
+}
+
+/**
+ * 解析触发词输入文本（逗号或换行分隔）
+ * @param value 输入文本
+ * @returns 触发词列表
+ */
+function parseTriggerWords(value: string): string[] {
+  return value
+    .split(/[,\n]+/)
+    .map(word => word.trim())
+    .filter(Boolean);
+}
 
 /**
  * 转换预设选择器选项
@@ -275,7 +324,7 @@ function createBlankLora(): ComfyUILoraSetting {
  * @returns 新条目
  */
 function cloneLoraSetting(lora: ComfyUILoraSetting): ComfyUILoraSetting {
-  return { ...lora, id: uuidv4() };
+  return { ...lora, id: uuidv4(), triggerWords: [...lora.triggerWords] };
 }
 
 /**

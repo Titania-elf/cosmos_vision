@@ -11,6 +11,7 @@ import {
 import type { InlineGenerationSession } from '@/composables/inlineGenerationSession';
 import type { InlineImageDownloadOptions } from '@/services/inline-image/download-options';
 import type { InlinePromptSnapshot } from '@/composables/inlineImageLightbox';
+import { getActiveComfyUILoraTriggerWords } from '@/services/comfyui/lora-presets';
 
 export type RuntimeEnabledGetter = () => boolean;
 
@@ -46,6 +47,8 @@ export interface InlinePromptPairInputOptions {
   charactersDefaultValue?: InlineCharacterPromptDraft[];
   /** 可选画师串列表（提供时正向提示词旁显示插入入口） */
   artistTags?: InlineArtistTagOption[];
+  /** 当前激活 LoRA 组的触发词（提供时正向提示词旁显示注入提示） */
+  loraTriggerWords?: string[];
 }
 
 export interface InlinePromptPairInputValue {
@@ -109,6 +112,7 @@ export async function requestEditedPromptSnapshot(
     artistTags: settings.artistTagPool.entries
       .filter(entry => entry.enabled && entry.text.trim())
       .map(({ name, text }) => ({ name, text: text.trim() })),
+    loraTriggerWords: getActiveComfyUILoraTriggerWords(settings.comfyui.loraPresets),
   });
   if (!prompts) return null;
   return createEditedPromptSnapshot(settings.novelai, snapshot, prompts);

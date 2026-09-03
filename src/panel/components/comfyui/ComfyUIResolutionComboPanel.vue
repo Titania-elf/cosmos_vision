@@ -23,7 +23,7 @@
           label="应用"
           icon="fa-solid fa-arrow-right-to-bracket"
           severity="secondary"
-          variant="outlined"
+          variant="text"
           size="small"
           class="shrink-0"
           :title="`将 ${combo.width}×${combo.height} 写入工作流节点`"
@@ -33,7 +33,7 @@
           <Button
             icon="fa-solid fa-pen"
             severity="secondary"
-            variant="outlined"
+            variant="text"
             rounded
             size="small"
             aria-label="编辑组合"
@@ -43,7 +43,7 @@
           <Button
             icon="fa-solid fa-trash"
             severity="danger"
-            variant="outlined"
+            variant="text"
             rounded
             size="small"
             aria-label="删除组合"

@@ -51,6 +51,22 @@
             </div>
           </Popover>
         </div>
+        <div
+          v-if="loraTriggerWords?.length"
+          class="flex flex-wrap items-center gap-(--cv-space-xs) rounded-(--cv-radius-sm) bg-(--cv-surface-container-low) px-(--cv-space-md) py-(--cv-space-xs)"
+        >
+          <span class="flex items-center gap-(--cv-space-xs) text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">
+            <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true" />
+            生图时自动前置的 LoRA 触发词
+          </span>
+          <span
+            v-for="word in loraTriggerWords"
+            :key="word"
+            class="rounded-(--cv-radius-sm) bg-(--cv-surface-container-highest) px-(--cv-space-md) py-(--cv-space-xs) font-mono text-(length:--cv-font-size-xs) text-(--cv-on-surface)"
+            :title="word"
+            >{{ word }}</span
+          >
+        </div>
         <Textarea
           ref="inputRef"
           v-model="value"
@@ -197,6 +213,8 @@ const props = withDefaults(
     enableCharacters?: boolean;
     /** 可选画师串列表（提供时主文本框旁显示插入入口） */
     artistTags?: { name: string; text: string }[] | null;
+    /** 当前激活 LoRA 组的触发词（提供时主文本框上方显示注入提示） */
+    loraTriggerWords?: string[] | null;
   }>(),
   {
     primaryLabel: '',
@@ -208,6 +226,7 @@ const props = withDefaults(
     darkMode: false,
     enableCharacters: false,
     artistTags: null,
+    loraTriggerWords: null,
   },
 );
 

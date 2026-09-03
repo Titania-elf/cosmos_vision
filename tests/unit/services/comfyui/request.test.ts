@@ -81,6 +81,41 @@ describe('comfyui request builder', () => {
     expect(poolOff.snapshot.positivePrompt).toBe(baseline.snapshot.positivePrompt);
     expect(entriesOff.snapshot.positivePrompt).toBe(baseline.snapshot.positivePrompt);
   });
+
+  it('records workflow preset name, lora preset name and resolution into the snapshot', () => {
+    const settings = createPromptBindingSettings();
+    settings.workflowPresets.presets[0]!.workflowJson = JSON.stringify({
+      '6': {
+        class_type: 'CLIPTextEncode',
+        inputs: { text: 'positive placeholder' },
+        _meta: { cosmosVision: { promptBindings: { text: 'positive' }, imageOutput: true } },
+      },
+      '27': { class_type: 'EmptyLatentImage', inputs: { width: 832, height: 1216, batch_size: 1 } },
+    });
+    settings.loraPresets.presets = [
+      { id: 'lora-1', name: '立绘风格组', loras: [] },
+    ];
+    settings.loraPresets.activePresetId = 'lora-1';
+
+    const resolved = buildComfyUIResolvedRequest(settings, DEFAULT_SETTINGS.imagePromptPresets, {
+      positivePrompt: 'masterpiece, 1girl',
+      negativePrompt: 'low quality',
+    });
+
+    expect(resolved.snapshot.workflowPresetName).toBe('SDXL Workflow');
+    expect(resolved.snapshot.loraPresetName).toBe('立绘风格组');
+    expect(resolved.snapshot.resolution).toEqual({ width: 832, height: 1216 });
+  });
+
+  it('records undefined resolution when the workflow has no size nodes', () => {
+    const resolved = buildComfyUIResolvedRequest(createPromptBindingSettings(), DEFAULT_SETTINGS.imagePromptPresets, {
+      positivePrompt: 'masterpiece, 1girl',
+      negativePrompt: 'low quality',
+    });
+
+    expect(resolved.snapshot.workflowPresetName).toBe('SDXL Workflow');
+    expect(resolved.snapshot.resolution).toBeUndefined();
+  });
 });
 
 /**

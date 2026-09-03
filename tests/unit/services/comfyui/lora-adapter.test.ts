@@ -38,7 +38,7 @@ describe('comfyui lora-adapter', () => {
       id: 'p1',
       name: 'Preset 1',
       loras: [
-        { id: 'l1', name: 'new_lora_a.safetensors', strength: 0.8, enabled: true as const },
+        { id: 'l1', name: 'new_lora_a.safetensors', strength: 0.8, enabled: true as const, triggerWords: [] },
       ],
     };
     const node = structuredClone(sampleWorkflow['10']);
@@ -60,7 +60,7 @@ describe('comfyui lora-adapter', () => {
         {
           id: 'p1',
           name: 'Preset 1',
-          loras: [{ id: 'l1', name: 'my_lora.safetensors', strength: 0.7, enabled: true as const }],
+          loras: [{ id: 'l1', name: 'my_lora.safetensors', strength: 0.7, enabled: true as const, triggerWords: [] }],
         },
       ],
     };

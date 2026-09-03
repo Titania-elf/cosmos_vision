@@ -39,6 +39,58 @@ export function getActiveComfyUILoras(settings: ComfyUILoraPresetSettings): Comf
 }
 
 /**
+ * 收集当前激活 LoRA 预设组中已启用 LoRA 的触发词（忽略大小写去重）
+ * @param settings LoRA 预设组集合
+ * @returns 触发词列表
+ */
+export function getActiveComfyUILoraTriggerWords(settings: ComfyUILoraPresetSettings): string[] {
+  const seen = new Set<string>();
+  const words: string[] = [];
+  for (const lora of getActiveComfyUILoras(settings)) {
+    if (!lora.enabled) continue;
+    for (const word of lora.triggerWords) {
+      const trimmed = word.trim();
+      const key = trimmed.toLowerCase();
+      if (!trimmed || seen.has(key)) continue;
+      seen.add(key);
+      words.push(trimmed);
+    }
+  }
+  return words;
+}
+
+/**
+ * 将触发词前置到正向提示词最前面，提示词中已有的触发词不再重复注入
+ * @param positivePrompt 已拼接完成的正向提示词
+ * @param triggerWords 当前激活 LoRA 的触发词
+ * @returns 前置触发词后的正向提示词
+ */
+export function prependLoraTriggerWords(positivePrompt: string, triggerWords: readonly string[]): string {
+  const trimmedPrompt = positivePrompt.trim();
+  if (!triggerWords.length) return trimmedPrompt;
+  const promptTokens = readPromptTokens(trimmedPrompt);
+  const freshWords = triggerWords
+    .map(word => word.trim())
+    .filter(word => word && !promptTokens.has(word.toLowerCase()));
+  if (!freshWords.length) return trimmedPrompt;
+  return [freshWords.join(', '), trimmedPrompt].filter(Boolean).join(', ');
+}
+
+/**
+ * 读取提示词中的标签集合（按逗号/换行拆分，忽略大小写）
+ * @param prompt 提示词文本
+ * @returns 小写标签集合
+ */
+function readPromptTokens(prompt: string): Set<string> {
+  const tokens = new Set<string>();
+  for (const token of prompt.split(/[\n,]+/)) {
+    const trimmed = token.trim();
+    if (trimmed) tokens.add(trimmed.toLowerCase());
+  }
+  return tokens;
+}
+
+/**
  * 将当前激活 LoRA 预设组写入工作流 JSON 中的兼容节点
  * 用于工作流整体被替换（重置默认/导入）后保持 LoRA 节点与激活预设一致
  * @param workflowJson 工作流 JSON 文本

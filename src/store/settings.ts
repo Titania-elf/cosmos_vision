@@ -93,7 +93,15 @@ const comfyUILoraPresetSettingsSchema = createPresetSettingsSchema(
   z.object({
     id: z.string().min(1),
     name: z.string().default(DEFAULT_PRESET_NAME),
-    loras: z.array(z.object({ id: z.string().min(1), name: z.string(), strength: z.number(), enabled: z.boolean() })),
+    loras: z.array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string(),
+        strength: z.number(),
+        enabled: z.boolean(),
+        triggerWords: z.array(z.string()).default([]),
+      }),
+    ),
   }),
   'activePresetId 必须指向已有 ComfyUI LoRA 预设',
 );

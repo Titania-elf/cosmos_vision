@@ -4,6 +4,7 @@ import type { ImagePromptPresetSettings } from '@/constants/image-prompt';
 import { pickRandomArtistTag, prependArtistTag } from '@/services/image-prompt/artist-tag-pool';
 import { buildImagePromptPair, type ImagePromptPair } from '@/services/image-prompt/presets';
 import { readLoraSnapshotsFromWorkflow } from '@/services/comfyui/lora-adapter';
+import { getActiveComfyUILoraPreset, getActiveComfyUILoraTriggerWords, prependLoraTriggerWords } from '@/services/comfyui/lora-presets';
 import {
   readImageBindings,
   readImageOutputNodeId,
@@ -16,7 +17,8 @@ import {
 import { getComfyUIWorkflowValidationError, normalizeComfyUIUrl, parseComfyUIWorkflow } from '@/services/comfyui/parse';
 import { applySeedModes } from '@/services/comfyui/seed-runtime';
 import { getCachedComfyUIObjectInfo } from '@/services/comfyui/object-info';
-import { getActiveComfyUIWorkflowJson } from '@/services/comfyui/workflow-presets';
+import { listResolutionTargets } from '@/services/comfyui/resolution-combos';
+import { getActiveComfyUIWorkflowJson, getActiveComfyUIWorkflowPreset } from '@/services/comfyui/workflow-presets';
 import type {
   ComfyUIRequestSnapshot,
   ComfyUIResolvedRequest,
@@ -56,29 +58,48 @@ export function buildComfyUIResolvedRequestFromPrompts(
   const workflowJson = getActiveComfyUIWorkflowJson(settings.workflowPresets);
   const source = parseAndValidateWorkflow(settings, workflowJson);
   const { positivePrompt, negativePrompt } = requirePromptPair(prompts);
+  // 触发词前置到画师串之前：触发词 → 画师串 → 用户提示词
+  const triggeredPositivePrompt = prependLoraTriggerWords(
+    positivePrompt,
+    getActiveComfyUILoraTriggerWords(settings.loraPresets),
+  );
   const workflow = structuredClone(source) as ComfyUIWorkflow;
-  applyPromptBindings(workflow, positivePrompt, negativePrompt);
+  applyPromptBindings(workflow, triggeredPositivePrompt, negativePrompt);
   const seedValues = applySeedModes(workflow, workflowJson);
   const imageOutputNodeId = readImageOutputNodeId(workflow)!;
   const promptBindings = readPromptBindings(workflow);
   const imageBindings = readImageBindings(workflow);
   const loras = readLoraSnapshotsFromWorkflow(workflow);
   stripCosmosVisionMeta(workflow);
+  const resolution = readWorkflowResolution(workflow);
 
   return {
     workflow,
     imageOutputNodeId,
     snapshot: {
       endpoint: normalizeComfyUIUrl(settings.url),
-      positivePrompt,
+      positivePrompt: triggeredPositivePrompt,
       negativePrompt,
       imageOutputNodeId,
       promptBindings,
       seedValues,
       imageBindings,
       loras,
+      workflowPresetName: getActiveComfyUIWorkflowPreset(settings.workflowPresets).name,
+      loraPresetName: getActiveComfyUILoraPreset(settings.loraPresets).name,
+      resolution,
     },
   };
+}
+
+/**
+ * 读取工作流首个分辨率目标的当前尺寸（无尺寸节点时返回 undefined）
+ * @param workflow 工作流
+ * @returns 分辨率或 undefined
+ */
+function readWorkflowResolution(workflow: ComfyUIWorkflow): { width: number; height: number } | undefined {
+  const target = listResolutionTargets(workflow)[0];
+  return target ? { width: target.width, height: target.height } : undefined;
 }
 
 /**

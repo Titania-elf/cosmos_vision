@@ -51,6 +51,8 @@ export interface ComfyUILoraSetting {
   name: string;
   strength: number;
   enabled: boolean;
+  /** 生图时前置到正向提示词的触发词 */
+  triggerWords: string[];
 }
 
 /** ComfyUI LoRA 预设组 */
@@ -135,6 +137,7 @@ export function createComfyUILoraSetting(
     name: '',
     strength: 1,
     enabled: true,
+    triggerWords: [],
     ...overrides,
   };
 }
