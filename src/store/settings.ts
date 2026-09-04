@@ -2,7 +2,7 @@ import { extension_settings } from '@sillytavern/scripts/extensions';
 import { saveSettingsDebounced } from '@sillytavern/script';
 import { useLocalStorage } from '@vueuse/core';
 import { z } from 'zod';
-import { IMAGE_SOURCES } from '@/constants/comfyui';
+import { IMAGE_SOURCES, type ComfyUILoraPresetSettings } from '@/constants/comfyui';
 import {
   DEFAULT_DARK_MODE,
   DEFAULT_PRESET_NAME,
@@ -789,6 +789,18 @@ export const useSettingsStore = defineStore('cosmos_vision_settings', () => {
     persist(savedSettings);
   }
 
+  /**
+   * 即时应用 LoRA 预设组变更并立即持久化
+   * LoRA 预设按运行配置管理：草稿与已应用配置同步更新并立即落盘，
+   * 避免忘记「应用更改」导致改动丢失，或运行时/内联弹窗读到旧值
+   * @param value 新的 LoRA 预设组集合
+   */
+  function applyLoraPresetSettings(value: ComfyUILoraPresetSettings): void {
+    settings.comfyui.loraPresets = value;
+    savedSettings.comfyui.loraPresets = _.cloneDeep(value);
+    persist(savedSettings);
+  }
+
   return {
     settings,
     savedSettings,
@@ -801,5 +813,6 @@ export const useSettingsStore = defineStore('cosmos_vision_settings', () => {
     applyImportedSettings,
     stageImportedSettings,
     persistSavedSettings,
+    applyLoraPresetSettings,
   };
 });

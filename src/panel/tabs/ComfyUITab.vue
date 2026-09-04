@@ -77,7 +77,7 @@
           :is-loading-loras="isLoadingLoras"
           :tutorial-selected-node-id="tutorialNodeId"
           @update:favorite-node-ids="updateFavoriteNodeIds"
-          @update:lora-preset-settings="settings.comfyui.loraPresets = $event"
+          @update:lora-preset-settings="updateLoraPresetSettings"
           @import="triggerWorkflowImport"
           @refresh-lora-options="fetchLoraOptions"
         />
@@ -115,6 +115,7 @@ import { uuidv4 } from '@sillytavern/scripts/utils';
 
 import {
   createComfyUIWorkflowPreset,
+  type ComfyUILoraPresetSettings,
   DEFAULT_COMFYUI_WORKFLOW_JSON,
   DEFAULT_COMFYUI_WORKFLOW_PRESET_ID,
 } from '@/constants/comfyui';
@@ -135,7 +136,8 @@ type ComfyUISubTab = 'api' | 'config' | 'test';
 type TextOption = { value: string; label: string };
 type PresetOption = { id: string; name: string };
 
-const { settings } = useSettingsStore();
+const settingsStore = useSettingsStore();
+const { settings } = settingsStore;
 const syncCacheStore = useSyncCacheStore();
 const workflowFileInput = ref<HTMLInputElement | null>(null);
 
@@ -292,6 +294,16 @@ function appendTrimmedValues(target: Set<string>, values: readonly string[]): vo
  */
 function updateWorkflowPresetId(presetId: string): void {
   settings.comfyui.workflowPresets.activePresetId = presetId;
+}
+
+/**
+ * 更新 LoRA 预设组并即时持久化
+ * LoRA 预设视为运行配置而非草稿：改动强度/开关等立即写入 savedSettings 并落盘，
+ * 避免忘记点「应用更改」导致改动丢失或运行时使用旧值
+ * @param value 新的 LoRA 预设组集合
+ */
+function updateLoraPresetSettings(value: ComfyUILoraPresetSettings): void {
+  settingsStore.applyLoraPresetSettings(value);
 }
 
 /** 新建工作流预设 */

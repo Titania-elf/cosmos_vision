@@ -207,8 +207,8 @@ function readWorkflowResolution(): { width: number; height: number } | null {
  */
 function selectLoraPreset(preset: ComfyUILoraPreset): void {
   if (preset.id === activeLoraPresetId.value) return;
-  comfyui.value.loraPresets.activePresetId = preset.id;
-  settingsStore.persistSavedSettings();
+  // 同步草稿与已应用配置，避免设置弹窗的旧草稿在「应用更改」时把本次切换覆盖掉
+  settingsStore.applyLoraPresetSettings({ ...comfyui.value.loraPresets, activePresetId: preset.id });
   toastr.success(`已切换 LoRA 组「${preset.name?.trim() || '未命名'}」`);
 }
 

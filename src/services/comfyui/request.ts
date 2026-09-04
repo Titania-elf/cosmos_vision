@@ -3,7 +3,7 @@ import type { ComfyUISettings } from '@/constants/comfyui';
 import type { ImagePromptPresetSettings } from '@/constants/image-prompt';
 import { pickRandomArtistTag, prependArtistTag } from '@/services/image-prompt/artist-tag-pool';
 import { buildImagePromptPair, type ImagePromptPair } from '@/services/image-prompt/presets';
-import { readLoraSnapshotsFromWorkflow } from '@/services/comfyui/lora-adapter';
+import { readLoraSnapshotsFromWorkflow, writeLoraPresetToNode, isSupportedLoraNode } from '@/services/comfyui/lora-adapter';
 import { getActiveComfyUILoraPreset, getActiveComfyUILoraTriggerWords, prependLoraTriggerWords } from '@/services/comfyui/lora-presets';
 import {
   readImageBindings,
@@ -64,6 +64,9 @@ export function buildComfyUIResolvedRequestFromPrompts(
     getActiveComfyUILoraTriggerWords(settings.loraPresets),
   );
   const workflow = structuredClone(source) as ComfyUIWorkflow;
+  // 激活 LoRA 预设是唯一事实源：每次请求覆写工作流中的兼容节点，
+  // 保证切组/改强度后立即生效，不依赖面板是否曾写入工作流草稿
+  applyActiveLoraPreset(workflow, settings.loraPresets);
   applyPromptBindings(workflow, triggeredPositivePrompt, negativePrompt);
   const seedValues = applySeedModes(workflow, workflowJson);
   const imageOutputNodeId = readImageOutputNodeId(workflow)!;
@@ -100,6 +103,17 @@ export function buildComfyUIResolvedRequestFromPrompts(
 function readWorkflowResolution(workflow: ComfyUIWorkflow): { width: number; height: number } | undefined {
   const target = listResolutionTargets(workflow)[0];
   return target ? { width: target.width, height: target.height } : undefined;
+}
+
+/**
+ * 将激活 LoRA 预设写入工作流副本中的首个兼容节点
+ * @param workflow 工作流副本
+ * @param loraPresets LoRA 预设组集合
+ */
+function applyActiveLoraPreset(workflow: ComfyUIWorkflow, loraPresets: ComfyUISettings['loraPresets']): void {
+  const node = Object.values(workflow).find(isSupportedLoraNode);
+  if (!node) return;
+  writeLoraPresetToNode(node, getActiveComfyUILoraPreset(loraPresets));
 }
 
 /**

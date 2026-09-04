@@ -116,6 +116,46 @@ describe('comfyui request builder', () => {
     expect(resolved.snapshot.workflowPresetName).toBe('SDXL Workflow');
     expect(resolved.snapshot.resolution).toBeUndefined();
   });
+
+  it('overwrites the workflow lora node with the active lora preset before sending', () => {
+    const settings = createPromptBindingSettings();
+    settings.workflowPresets.presets[0]!.workflowJson = JSON.stringify({
+      '6': {
+        class_type: 'CLIPTextEncode',
+        inputs: { text: 'positive placeholder' },
+        _meta: { cosmosVision: { promptBindings: { text: 'positive' }, imageOutput: true } },
+      },
+      '10': {
+        class_type: 'Lora Loader (LoraManager)',
+        inputs: {
+          text: '<lora:stale_lora:1.0>',
+          loras: {
+            __value__: [
+              { name: 'stale_lora', strength: 1.0, active: true, clipStrength: 1.0, expanded: false },
+            ],
+          },
+        },
+      },
+    });
+    settings.loraPresets.presets = [
+      {
+        id: 'lora-1',
+        name: '当前组',
+        loras: [{ id: 'l1', name: 'fresh_lora.safetensors', strength: 0.8, enabled: true, triggerWords: [] }],
+      },
+    ];
+    settings.loraPresets.activePresetId = 'lora-1';
+
+    const resolved = buildComfyUIResolvedRequest(settings, DEFAULT_SETTINGS.imagePromptPresets, {
+      positivePrompt: 'masterpiece, 1girl',
+      negativePrompt: 'low quality',
+    });
+
+    const loraNode = resolved.workflow['10'] as unknown as { inputs: { text: string } };
+    expect(loraNode.inputs.text).toContain('<lora:fresh_lora:0.8>');
+    expect(loraNode.inputs.text).not.toContain('stale_lora');
+    expect(resolved.snapshot.loras).toEqual([{ name: 'fresh_lora', strength: 0.8 }]);
+  });
 });
 
 /**
