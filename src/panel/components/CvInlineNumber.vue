@@ -2,8 +2,9 @@
   <!--
     极简数字编辑：默认显示纯文本（点击进入编辑），编辑态显示 InputNumber。
     v-bind="$attrs" 透传 aria-label 等；值与编辑通过 update:model-value 提交。
-    提交时机：回车/失焦立即提交；输入停顿自动提交（手机虚拟键盘没有回车键，
-    iOS 点按非聚焦区又不触发失焦，必须提供无需确认键的提交路径）。
+    提交时机：点击组件外任意位置（含空白处）/ 回车 / 失焦 / 输入停顿均提交。
+    iOS 虚拟键盘无回车键且点按非聚焦区不触发失焦，因此以 document 级
+    pointerdown 捕获作为移动端主提交路径。
   -->
   <InputNumber
     v-if="editing"
@@ -63,7 +64,7 @@ const editing = ref(false);
 const inputRef = ref<{ $el?: HTMLElement } | null>(null);
 /** 编辑过程中的临时值；失焦或回车提交 */
 let draft: number | null = null;
-/** 进入编辑时的原值；Escape 取消时恢复（自动提交可能已覆写中途值） */
+/** 进入编辑时的原值；Escape 取消时恢复（停顿提交可能已覆写中途值） */
 let original: number | null = null;
 /** 输入停顿自动提交的定时器 */
 let idleCommitTimer: number | null = null;
@@ -82,23 +83,56 @@ const inlineNumberPt: InputNumberPassThroughOptions = {
 };
 
 watch(editing, async opened => {
-  if (!opened) return;
-  draft = null;
-  original = props.modelValue;
-  await nextTick();
-  focusInput();
+  if (opened) {
+    draft = null;
+    original = props.modelValue;
+    // 捕获阶段监听全局 pointerdown：点空白处（不触发失焦的场景）也能提交
+    document.addEventListener('pointerdown', handleOutsidePointerDown, true);
+    await nextTick();
+    focusInput();
+    return;
+  }
+  detachOutsidePointerDown();
 });
 
-onBeforeUnmount(() => clearIdleCommitTimer());
+onBeforeUnmount(() => {
+  clearIdleCommitTimer();
+  detachOutsidePointerDown();
+});
 
 /**
  * 聚焦编辑输入框并全选，便于直接键入覆盖
  */
 function focusInput(): void {
-  const el = inputRef.value?.$el;
-  const input = el instanceof HTMLInputElement ? el : el?.querySelector('input');
+  const input = findInputElement();
   input?.focus();
   input?.select();
+}
+
+/**
+ * 定位 InputNumber 内部的原生 input 元素
+ * @returns 原生 input 或 null
+ */
+function findInputElement(): HTMLInputElement | null {
+  const el = inputRef.value?.$el;
+  return el instanceof HTMLInputElement ? el : (el?.querySelector('input') ?? null);
+}
+
+/**
+ * 全局 pointerdown：点击输入框以外的任意位置立即提交
+ * @param event 指针事件
+ */
+function handleOutsidePointerDown(event: PointerEvent): void {
+  const input = findInputElement();
+  if (input?.contains(event.target as Node)) return;
+  commit();
+}
+
+/**
+ * 移除全局 pointerdown 监听
+ */
+function detachOutsidePointerDown(): void {
+  document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
 }
 
 /**
@@ -133,12 +167,14 @@ function clearIdleCommitTimer(): void {
 }
 
 /**
- * 提交编辑（有效临时值才覆写）
+ * 提交编辑（有效值才覆写）
+ * 组件未收到输入事件时（部分虚拟键盘），兜底直接解析输入框文本
  */
 function commit(): void {
   clearIdleCommitTimer();
-  if (draft !== null && Number.isFinite(draft)) {
-    emit('update:model-value', clamp(draft));
+  const value = draft ?? readRawInputValue();
+  if (value !== null && Number.isFinite(value)) {
+    emit('update:model-value', clamp(value));
   }
   draft = null;
   original = null;
@@ -146,7 +182,18 @@ function commit(): void {
 }
 
 /**
- * 取消编辑（Escape），丢弃临时值；停顿自动提交已覆写时恢复原值
+ * 直接读取原生输入框文本并解析为数值
+ * @returns 数值或 null（空/非法文本）
+ */
+function readRawInputValue(): number | null {
+  const text = findInputElement()?.value.trim() ?? '';
+  if (!text) return null;
+  const parsed = Number(text.replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * 取消编辑（Escape），丢弃临时值；停顿提交已覆写时恢复原值
  */
 function cancel(): void {
   clearIdleCommitTimer();
