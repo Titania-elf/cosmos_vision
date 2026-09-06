@@ -2,10 +2,14 @@ import type { ImageSource } from '@/constants/comfyui';
 import type { CharacterPromptItem } from '@/constants/novelai';
 import type { ImagePromptVibeRef } from '@/constants/novelai-vibe';
 import { buildInlineActionHostClass } from '@/composables/inlineImageDom';
+import { createLightboxZoom, type InlineLightboxZoomController } from '@/composables/inlineLightboxZoom';
 import type { ComfyUIRequestSnapshot } from '@/services/comfyui/types';
 import type { NovelAIFinalPrompts } from '@/services/novelai/api';
 import type { NovelAIVibeParameters } from '@/services/novelai/vibe-types';
 import { useSettingsStore } from '@/store/settings';
+
+/** 判定 click 前置拖拽的最小位移（像素）：超过则不视为背景点击关闭 */
+const OVERLAY_CLICK_DRAG_THRESHOLD = 8;
 
 /** 内联生图提示词快照 */
 export interface InlinePromptSnapshot {
@@ -52,6 +56,8 @@ interface LightboxState {
   isGallery: boolean;
   /** 导航令牌：快速切换时丢弃过期加载 */
   navToken: number;
+  /** 大图缩放控制器（bindLightboxEvents 中创建） */
+  zoom?: InlineLightboxZoomController;
   close: () => void;
 }
 
@@ -278,9 +284,11 @@ function buildLightboxToolbarMarkup(hasDownload: boolean, isGallery: boolean): s
   return `
     <div class="cv-lightbox-toolbar">
       ${isGallery ? '<span class="cv-lightbox-counter"></span>' : ''}
-      ${hasDownload
-        ? '<button class="cv-lightbox-download" title="下载图片" aria-label="下载图片"><i class="fa-solid fa-download"></i></button>'
-        : ''}
+      ${
+        hasDownload
+          ? '<button class="cv-lightbox-download" title="下载图片" aria-label="下载图片"><i class="fa-solid fa-download"></i></button>'
+          : ''
+      }
       <button class="cv-lightbox-close" title="关闭" aria-label="关闭"><i class="fa-solid fa-xmark"></i></button>
     </div>
   `;
@@ -416,7 +424,11 @@ function getCharacterItemTitle(item: CharacterPromptItem, index: number): string
  * @param useCharacterCoords 是否使用手动坐标
  * @returns 坐标文本
  */
-function formatCharacterPosition(item: CharacterPromptItem, characterCount: number, useCharacterCoords?: boolean): string {
+function formatCharacterPosition(
+  item: CharacterPromptItem,
+  characterCount: number,
+  useCharacterCoords?: boolean,
+): string {
   if (characterCount < 2 || useCharacterCoords === false) return 'Auto';
   return `x: ${item.position.x.toFixed(2)}, y: ${item.position.y.toFixed(2)}`;
 }
@@ -438,7 +450,20 @@ function escapeHtml(value: string): string {
  */
 function bindLightboxEvents(state: LightboxState): void {
   const overlay = state.overlay;
-  overlay.addEventListener('click', e => handleOverlayClick(e, overlay, state.close));
+  const imgBox = overlay.querySelector<HTMLElement>('.cv-lightbox-img-box');
+  if (imgBox) state.zoom = createLightboxZoom(imgBox);
+  // 记录指针按下位置：拖动图片/平移后松开时，浏览器会在按下与抬起目标的公共祖先上合成
+  // click（常落在 img-box 上），若位移明显则视为拖拽而非点击，不触发背景关闭
+  let downX = 0;
+  let downY = 0;
+  overlay.addEventListener('pointerdown', e => {
+    downX = e.clientX;
+    downY = e.clientY;
+  });
+  overlay.addEventListener('click', e => {
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > OVERLAY_CLICK_DRAG_THRESHOLD) return;
+    handleOverlayClick(e, overlay, state.close);
+  });
   overlay.querySelector('.cv-lightbox-close')?.addEventListener('click', state.close);
   bindLightboxDownload(state);
   if (state.isGallery) {
@@ -596,6 +621,7 @@ export function openInlineImageLightbox(
   const close = () => {
     if (closed) return;
     closed = true;
+    state.zoom?.destroy();
     overlay.classList.remove('cv-lightbox-active');
     window.setTimeout(() => overlay.remove(), 250);
     document.removeEventListener('keydown', handleKey);
@@ -646,6 +672,8 @@ async function showLightboxEntry(state: LightboxState, index: number): Promise<v
   const entry = state.entries[index];
   if (!entry || index === state.index) return;
   state.index = index;
+  // 切换条目时重置上一张的缩放/平移状态
+  state.zoom?.reset();
   const token = ++state.navToken;
   const img = state.overlay.querySelector<HTMLImageElement>('.cv-lightbox-preview-img');
   const imgBox = state.overlay.querySelector<HTMLElement>('.cv-lightbox-img-box');
@@ -709,19 +737,29 @@ function bindLightboxSwipe(state: LightboxState): void {
   if (!imgBox) return;
   let startX = 0;
   let startY = 0;
-  imgBox.addEventListener('touchstart', e => {
-    const touch = e.touches[0];
-    if (!touch) return;
-    startX = touch.clientX;
-    startY = touch.clientY;
-  }, { passive: true });
-  imgBox.addEventListener('touchend', e => {
-    const touch = e.changedTouches[0];
-    if (!touch) return;
-    const deltaX = touch.clientX - startX;
-    const deltaY = touch.clientY - startY;
-    // 水平位移显著大于纵向才视为切换手势，避免与纵向滚动冲突
-    if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.5) return;
-    navigateLightbox(state, deltaX < 0 ? 1 : -1);
-  }, { passive: true });
+  imgBox.addEventListener(
+    'touchstart',
+    e => {
+      const touch = e.touches[0];
+      if (!touch) return;
+      startX = touch.clientX;
+      startY = touch.clientY;
+    },
+    { passive: true },
+  );
+  imgBox.addEventListener(
+    'touchend',
+    e => {
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      // 放大态或捏合/平移手势后的抬起不触发切换，避免与缩放平移冲突
+      if (state.zoom?.isTouchConsumed()) return;
+      const deltaX = touch.clientX - startX;
+      const deltaY = touch.clientY - startY;
+      // 水平位移显著大于纵向才视为切换手势，避免与纵向滚动冲突
+      if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.5) return;
+      navigateLightbox(state, deltaX < 0 ? 1 : -1);
+    },
+    { passive: true },
+  );
 }

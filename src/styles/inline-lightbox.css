@@ -140,7 +140,28 @@
   border-radius: 12px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
   object-fit: contain;
+  /* 缩放/平移由 inlineLightboxZoom 指针手势接管，禁用浏览器原生触摸手势 */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition:
+    opacity 0.15s ease,
+    transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
+  will-change: transform;
+}
+
+/* 手势进行中：变换即时跟手，不参与过渡 */
+.cv-lightbox-img-box img.cv-lightbox-img-dragging {
   transition: opacity 0.15s ease;
+}
+
+/* 放大态光标（PC 拖拽平移） */
+.cv-lightbox-img-box img.cv-lightbox-img-zoomed {
+  cursor: grab;
+}
+
+.cv-lightbox-img-box img.cv-lightbox-img-zoomed.cv-lightbox-img-dragging {
+  cursor: grabbing;
 }
 
 /* 画廊切换加载中：当前图半透明过渡 */
