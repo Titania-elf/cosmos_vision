@@ -67,8 +67,16 @@
         </div>
       </div>
 
-      <div class="text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">
-        已选 {{ selectedCount }} 个；添加后默认为禁用状态，启用请在列表中逐个打开
+      <div class="flex flex-col gap-(--cv-space-md)">
+        <div class="text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">
+          已选 {{ selectedCount }} 个；添加后默认为禁用状态，启用请在列表中逐个打开
+        </div>
+        <label
+          class="inline-flex cursor-pointer items-center gap-(--cv-space-md) text-(length:--cv-font-size-xs) text-(--cv-on-surface)"
+        >
+          <Checkbox v-model="shouldFetchTriggerWords" binary />
+          <span class="min-w-0 leading-[1.35]">添加后自动获取触发词（需 ComfyUI-Lora-Manager）</span>
+        </label>
       </div>
     </div>
     <template #footer>
@@ -99,12 +107,14 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  /** 确认添加选中的 LoRA 名称列表 */
-  confirm: [names: string[]];
+  /** 确认添加选中的 LoRA 名称列表，并指明是否随后自动获取触发词 */
+  confirm: [names: string[], fetchTriggerWords: boolean];
 }>();
 
 const searchKeyword = ref('');
 const selectedIds = ref<ReadonlySet<string>>(new Set());
+/** 添加后是否自动获取触发词（跨次打开保留上次选择） */
+const shouldFetchTriggerWords = ref(true);
 
 /** 已在当前组中的 LoRA 名称集合 */
 const addedNames = computed(() => new Set(props.existingLoras.map(lora => lora.name.trim()).filter(Boolean)));
@@ -162,7 +172,7 @@ function confirm(): void {
   const names: string[] = [];
   for (const id of selectedIds.value) if (selectable.has(id)) names.push(id);
   if (!names.length) return;
-  emit('confirm', names);
+  emit('confirm', names, shouldFetchTriggerWords.value);
   selectedIds.value = new Set();
   searchKeyword.value = '';
   visible.value = false;

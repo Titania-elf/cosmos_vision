@@ -44,19 +44,29 @@ export function getActiveComfyUILoras(settings: ComfyUILoraPresetSettings): Comf
  * @returns 触发词列表
  */
 export function getActiveComfyUILoraTriggerWords(settings: ComfyUILoraPresetSettings): string[] {
+  return dedupeTriggerWords(
+    getActiveComfyUILoras(settings)
+      .filter(lora => lora.enabled)
+      .flatMap(lora => lora.triggerWords),
+  );
+}
+
+/**
+ * 规范化触发词列表：去空白、丢弃空词、忽略大小写去重（保留首次出现的写法）
+ * @param words 原始触发词列表
+ * @returns 规范化后的触发词列表
+ */
+export function dedupeTriggerWords(words: readonly string[]): string[] {
   const seen = new Set<string>();
-  const words: string[] = [];
-  for (const lora of getActiveComfyUILoras(settings)) {
-    if (!lora.enabled) continue;
-    for (const word of lora.triggerWords) {
-      const trimmed = word.trim();
-      const key = trimmed.toLowerCase();
-      if (!trimmed || seen.has(key)) continue;
-      seen.add(key);
-      words.push(trimmed);
-    }
+  const result: string[] = [];
+  for (const word of words) {
+    const trimmed = word.trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
   }
-  return words;
+  return result;
 }
 
 /**

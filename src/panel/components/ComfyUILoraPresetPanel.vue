@@ -118,13 +118,27 @@
                 @hide="closeSwap(lora.id)"
               />
             </div>
-            <div v-if="expandedTriggerWordIds.has(lora.id)" class="mt-(--cv-space-md) pl-(--cv-space-2xl) max-[32rem]:pl-0">
+            <div
+              v-if="expandedTriggerWordIds.has(lora.id)"
+              class="mt-(--cv-space-md) flex items-center gap-(--cv-space-sm) pl-(--cv-space-2xl) max-[32rem]:pl-0"
+            >
               <InputText
                 :model-value="lora.triggerWords.join(', ')"
                 placeholder="触发词（逗号分隔，多个；生图时自动前置到正向提示词）"
-                class="w-full"
+                class="min-w-0 flex-1"
                 aria-label="LoRA 触发词"
                 @update:model-value="updateLora(lora.id, { triggerWords: parseTriggerWords(String($event ?? '')) })"
+              />
+              <CvMiniButton
+                :icon="
+                  fetchingTriggerWordIds.has(lora.id)
+                    ? 'fa-solid fa-spinner animate-spin'
+                    : 'fa-solid fa-cloud-arrow-down'
+                "
+                :disabled="!lora.name || fetchingTriggerWordIds.has(lora.id)"
+                title="从 LoRA Manager 获取触发词（与现有触发词合并）"
+                aria-label="获取触发词"
+                @click="fetchTriggerWords(lora.id)"
               />
             </div>
           </div>
@@ -154,6 +168,21 @@
           >
             <i class="fa-solid fa-list-check" />
             批量添加
+          </button>
+          <button
+            v-if="activePreset?.loras.length"
+            type="button"
+            class="flex w-full cursor-pointer items-center justify-center gap-(--cv-space-sm) rounded-(--cv-radius-sm) border-(length:--cv-border-width) border-dashed border-(--cv-surface-variant) bg-[color-mix(in_srgb,var(--cv-surface-container-low)_42%,transparent)] py-(--cv-space-md) text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant) transition-all duration-200 ease-in-out hover:border-(--cv-outline) hover:bg-(--cv-surface-container-low) hover:text-(--cvp-primary-color)"
+            :class="{ 'pointer-events-none opacity-45': isFetchingTriggerWordsBulk }"
+            title="为组内尚未填写触发词的 LoRA 批量拉取（已填写的不会被覆盖）"
+            @click="fetchMissingTriggerWords"
+          >
+            <i
+              :class="
+                isFetchingTriggerWordsBulk ? 'fa-solid fa-spinner animate-spin' : 'fa-solid fa-cloud-arrow-down'
+              "
+            />
+            自动获取触发词
           </button>
         </div>
       </div>
@@ -185,7 +214,12 @@ import ComfyUILoraBulkAddDialog from '@/panel/components/comfyui/ComfyUILoraBulk
 import CvInlineNumber from '@/panel/components/CvInlineNumber.vue';
 import CvMiniButton from '@/panel/components/CvMiniButton.vue';
 import CvMiniToggleSwitch from '@/panel/components/CvMiniToggleSwitch.vue';
-import { findComfyUILoraPreset } from '@/services/comfyui/lora-presets';
+import { dedupeTriggerWords, findComfyUILoraPreset } from '@/services/comfyui/lora-presets';
+import {
+  fetchComfyUILoraTriggerWords,
+  fetchComfyUILoraTriggerWordsBatch,
+  type ComfyUILoraTriggerWordsBatchResult,
+} from '@/services/comfyui/lora-trigger-words';
 
 interface TextOption {
   value: string;
@@ -203,6 +237,8 @@ const props = defineProps<{
   presetSettings: ComfyUILoraPresetSettings;
   loraOptions: TextOption[];
   isLoadingLoras: boolean;
+  /** ComfyUI 地址，用于向 LoRA Manager 拉取触发词 */
+  comfyuiUrl: string;
 }>();
 
 const emit = defineEmits<{
@@ -223,6 +259,12 @@ const expandedTriggerWordIds = ref<ReadonlySet<string>>(new Set());
 const swappingLoraIds = ref<ReadonlySet<string>>(new Set());
 /** 批量添加弹窗开合状态 */
 const isBulkAddVisible = ref(false);
+/** 正在单条拉取触发词的 LoRA 条目 ID */
+const fetchingTriggerWordIds = ref<ReadonlySet<string>>(new Set());
+/** 进行中的批量拉取任务数（批量添加与批量获取可能重叠） */
+const bulkTriggerWordFetchCount = ref(0);
+/** 批量拉取触发词进行中 */
+const isFetchingTriggerWordsBulk = computed(() => bulkTriggerWordFetchCount.value > 0);
 /** 「更多」菜单打开中的条目 ID 与 Popover 实例 */
 const moreMenuIds = ref<ReadonlySet<string>>(new Set());
 const moreMenuRefs = new Map<string, { toggle: (event: Event) => void; hide: () => void }>();
@@ -317,6 +359,144 @@ function selectSwapLora(id: string, name: string): void {
 }
 
 /**
+ * 从 LoRA Manager 拉取单个 LoRA 的触发词，并与现有触发词合并（不覆盖手填内容）
+ * @param id LoRA 条目 ID
+ */
+async function fetchTriggerWords(id: string): Promise<void> {
+  const lora = activePreset.value?.loras.find(item => item.id === id);
+  if (!lora?.name.trim() || fetchingTriggerWordIds.value.has(id)) return;
+  if (!requireComfyUIUrl()) return;
+
+  setFetchingTriggerWords(id, true);
+  try {
+    const words = await fetchComfyUILoraTriggerWords(props.comfyuiUrl, lora.name);
+    if (!words.length) {
+      toastr.info('LoRA Manager 没有记录该 LoRA 的触发词');
+      return;
+    }
+    // 等待期间用户可能改过这一行，重新读取当前值再合并
+    const current = activePreset.value?.loras.find(item => item.id === id);
+    if (!current) return;
+    const merged = dedupeTriggerWords([...current.triggerWords, ...words]);
+    if (merged.length === current.triggerWords.length) {
+      toastr.info('触发词已是最新');
+      return;
+    }
+    updateLora(id, { triggerWords: merged });
+    toastr.success(`已获取 ${words.length} 个触发词`);
+  } catch (error) {
+    toastr.error(error instanceof Error ? error.message : '获取触发词失败');
+    console.error('[ComfyUILoraPresetPanel]', error);
+  } finally {
+    setFetchingTriggerWords(id, false);
+  }
+}
+
+/**
+ * 为当前分组内尚未填写触发词的 LoRA 批量拉取触发词（已填写的条目不动）
+ */
+async function fetchMissingTriggerWords(): Promise<void> {
+  const preset = activePreset.value;
+  if (!preset || isFetchingTriggerWordsBulk.value) return;
+  if (!requireComfyUIUrl()) return;
+
+  const targets = preset.loras.filter(lora => lora.name.trim() && !lora.triggerWords.length);
+  if (!targets.length) {
+    toastr.info('当前分组内已选 LoRA 都填过触发词了');
+    return;
+  }
+  await fetchTriggerWordsInto(
+    preset.id,
+    targets.map(lora => lora.name),
+  );
+}
+
+/**
+ * 批量拉取指定 LoRA 的触发词，并写入仍为空的条目
+ * @param presetId 预设组 ID
+ * @param names 参与拉取的 LoRA 名称列表
+ */
+async function fetchTriggerWordsInto(presetId: string, names: readonly string[]): Promise<void> {
+  bulkTriggerWordFetchCount.value += 1;
+  try {
+    const result = await fetchComfyUILoraTriggerWordsBatch(props.comfyuiUrl, names);
+    const filled = applyFetchedTriggerWords(presetId, result.triggerWords);
+    reportTriggerWordsBatch(filled, names.length, result);
+  } catch (error) {
+    toastr.error(error instanceof Error ? error.message : '批量获取触发词失败');
+    console.error('[ComfyUILoraPresetPanel]', error);
+  } finally {
+    bulkTriggerWordFetchCount.value -= 1;
+  }
+}
+
+/**
+ * 把批量拉取到的触发词写入仍为空的 LoRA 条目（一次性提交，避免多次 emit）
+ * @param presetId 预设组 ID
+ * @param fetched LoRA 名称到触发词的映射
+ * @returns 实际写入的条目数
+ */
+function applyFetchedTriggerWords(presetId: string, fetched: ReadonlyMap<string, string[]>): number {
+  const preset = props.presetSettings.presets.find(item => item.id === presetId);
+  if (!preset) return 0;
+
+  let filled = 0;
+  const loras = preset.loras.map(lora => {
+    const words = fetched.get(lora.name.trim());
+    if (!words?.length || lora.triggerWords.length) return lora;
+    filled += 1;
+    return { ...lora, triggerWords: [...words] };
+  });
+  if (filled) updatePreset(presetId, () => ({ ...preset, loras }));
+  return filled;
+}
+
+/**
+ * 汇总批量拉取结果并提示（失败只报首条原因，避免刷屏）
+ * @param filled 实际写入触发词的条目数
+ * @param total 参与拉取的条目数
+ * @param result 批量拉取结果
+ */
+function reportTriggerWordsBatch(
+  filled: number,
+  total: number,
+  result: ComfyUILoraTriggerWordsBatchResult,
+): void {
+  const failed = result.failures.length;
+  const firstFailure = result.failures[0]?.message;
+  if (failed === total && firstFailure) {
+    toastr.error(firstFailure);
+    return;
+  }
+  if (filled) toastr.success(`已为 ${filled} / ${total} 个 LoRA 填入触发词`);
+  const missing = total - filled - failed;
+  if (missing > 0) toastr.info(`${missing} 个 LoRA 在 LoRA Manager 中没有触发词记录`);
+  if (failed) toastr.warning(`${failed} 个 LoRA 获取失败：${firstFailure ?? '未知原因'}`);
+}
+
+/**
+ * 切换单条触发词拉取中的状态
+ * @param id LoRA 条目 ID
+ * @param fetching 是否进行中
+ */
+function setFetchingTriggerWords(id: string, fetching: boolean): void {
+  const next = new Set(fetchingTriggerWordIds.value);
+  if (fetching) next.add(id);
+  else next.delete(id);
+  fetchingTriggerWordIds.value = next;
+}
+
+/**
+ * 校验 ComfyUI 地址是否已填写
+ * @returns 是否可以发起请求
+ */
+function requireComfyUIUrl(): boolean {
+  if (props.comfyuiUrl.trim()) return true;
+  toastr.warning('请先填写 ComfyUI URL');
+  return false;
+}
+
+/**
  * 解析触发词输入文本（逗号或换行分隔）
  * @param value 输入文本
  * @returns 触发词列表
@@ -405,14 +585,22 @@ function addLora(): void {
 /**
  * 批量添加 LoRA（默认禁用，需手动启用）
  * @param names LoRA 名称列表
+ * @param shouldFetchTriggerWords 添加后是否自动拉取触发词
  */
-function addLorasBulk(names: string[]): void {
-  if (!activePreset.value || !names.length) return;
-  updatePreset(activePreset.value.id, preset => ({
-    ...preset,
-    loras: [...preset.loras, ...names.map(name => createComfyUILoraSetting(uuidv4(), { name, enabled: false }))],
+async function addLorasBulk(names: string[], shouldFetchTriggerWords: boolean): Promise<void> {
+  const preset = activePreset.value;
+  if (!preset || !names.length) return;
+  updatePreset(preset.id, current => ({
+    ...current,
+    loras: [...current.loras, ...names.map(name => createComfyUILoraSetting(uuidv4(), { name, enabled: false }))],
   }));
   toastr.success(`已批量添加 ${names.length} 个 LoRA（默认禁用）`);
+
+  if (!shouldFetchTriggerWords) return;
+  if (!requireComfyUIUrl()) return;
+  // 等新条目随 props 回流后再回填触发词
+  await nextTick();
+  await fetchTriggerWordsInto(preset.id, names);
 }
 
 /**
