@@ -1038,3 +1038,77 @@ button.cv-inline-action-button--dom:disabled {
 .cv-fade-leave-to {
   opacity: 0;
 }
+
+/* 未建档提醒浮层：可点击直达人物页 */
+.cv-profiles-reminder {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 100000;
+  display: flex;
+  align-items: stretch;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--cvp-primary-color, var(--cvp-blue-500)) 45%, transparent);
+  background: var(--cv-surface-container-low, rgba(30, 30, 36, 0.92));
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  max-width: min(22rem, calc(100vw - 2.5rem));
+}
+
+.cv-profiles-reminder-main {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.7rem 0.85rem;
+  border: 0;
+  background: transparent;
+  color: var(--cv-on-surface, inherit);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.cv-profiles-reminder-main:hover {
+  background: color-mix(in srgb, var(--cvp-primary-color, var(--cvp-blue-500)) 12%, transparent);
+}
+
+.cv-profiles-reminder-main > i {
+  color: var(--cvp-primary-color, var(--cvp-blue-500));
+  font-size: 1.15rem;
+  flex-shrink: 0;
+}
+
+.cv-profiles-reminder-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.cv-profiles-reminder-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.cv-profiles-reminder-sub {
+  font-size: 0.75rem;
+  color: var(--cv-on-surface-variant, inherit);
+  opacity: 0.85;
+}
+
+.cv-profiles-reminder-close {
+  display: flex;
+  align-items: center;
+  padding: 0 0.6rem;
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--cv-on-surface-variant, #888) 25%, transparent);
+  background: transparent;
+  color: var(--cv-on-surface-variant, #888);
+  cursor: pointer;
+}
+
+.cv-profiles-reminder-close:hover {
+  color: var(--cv-on-surface, inherit);
+}

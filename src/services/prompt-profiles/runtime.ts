@@ -11,6 +11,7 @@ import type {
 } from '@/constants/novelai';
 import { getPromptPersonTemplateEntryKind } from '@/constants/novelai';
 import type { PromptLlmRuntimeContent } from '@/services/prompt-llm/message-preset';
+import { readChatProfiles } from '@/services/prompt-profiles/chat-store';
 import { buildAutoParticipantRuntimeContent, safeRenderPromptTemplate } from '@/services/prompt-profiles/auto-runtime';
 import { resolvePromptPersonTemplateEntry } from '@/services/tavern-helper/prompt-profiles-sources';
 
@@ -83,16 +84,17 @@ export function createCustomPromptPersonTemplateEntry(title = '自定义条目',
 
 /**
  * 构建人物运行时内容
+ * 人物档案跟随当前聊天（chat_metadata），全局 promptProfiles 参数保留仅为兼容既有调用签名
  * @param context Prompt LLM 运行时上下文
- * @param promptProfiles 提示词Profile设置
+ * @param promptProfiles 提示词Profile设置（已废弃，档案实际读取当前聊天）
  * @returns 历史消息与人物总体信息
  */
 export async function buildPromptProfilesRuntimeContent(
   context: PromptLlmContext,
-  promptProfiles: PromptProfilesSettings,
+  _promptProfiles: PromptProfilesSettings,
 ): Promise<PromptProfilesRuntimeResult> {
   const historyContent = context.historyParagraphs.join('\n\n').trim();
-  const matchedProfiles = await matchPromptProfiles(context.historyParagraphs, promptProfiles.profiles);
+  const matchedProfiles = await matchPromptProfiles(context.historyParagraphs, readChatProfiles());
   return {
     historyContent,
     participantContent: buildParticipantContext(matchedProfiles),

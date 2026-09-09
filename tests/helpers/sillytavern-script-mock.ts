@@ -9,6 +9,12 @@ export function getCurrentChatId(): string {
   return currentChatId;
 }
 
+/** chat_metadata mock（人物档案 per-chat 存储用） */
+export const chat_metadata: Record<string, unknown> = {};
+
+/** 防抖保存聊天 mock */
+export const saveChatDebounced = () => {};
+
 type EventListener = (...args: unknown[]) => void;
 
 /** 测试用事件总线：模拟 ST eventSource 的 on/emit/removeListener/makeLast */

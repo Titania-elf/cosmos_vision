@@ -63,6 +63,8 @@ export interface InlineImageGenerationOptions {
   requestPromptPairInput: (options: InlinePromptPairInputOptions) => Promise<InlinePromptPairInputValue | null>;
   requestImageDownloadOptions: () => Promise<InlineImageDownloadOptions | null>;
   getDarkMode: () => boolean;
+  /** 本聊天无启用人物档案时请求提醒（App 层负责展示可跳转浮层） */
+  notifyMissingProfiles?: () => void;
 }
 
 export type FreshPromptMode = 'new' | 'repeat';

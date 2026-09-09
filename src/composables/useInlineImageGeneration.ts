@@ -30,6 +30,7 @@ import {
   generatePromptFromRuntimeContext,
 } from '@/services/prompt-llm/runtime-request';
 import { buildLlmInspectorLabel, buildLlmInspectorRequestSnapshot } from '@/services/prompt-llm/llm-inspector';
+import { hasActiveChatProfiles } from '@/services/prompt-profiles/chat-store';
 import { useLlmInspectorStore } from '@/store/llm-inspector';
 import { buildPromptLlmSchemaFields, getPromptLlmRequestError } from '@/services/tavern-helper/prompt-llm';
 import { useSettingsStore } from '@/store/settings';
@@ -169,6 +170,21 @@ export function useInlineImageGeneration(
     document.addEventListener('pointerover', handleSelectionPointerOver, true);
     frameRegistry.bindPointerDown(handleSelectionPointerDown);
     frameRegistry.startObserving();
+    notifyMissingProfilesOnce();
+  }
+
+  /** 本会话是否已提醒过未建档（避免重复提醒） */
+  let hasNotifiedMissingProfiles = false;
+
+  /**
+   * 本聊天无启用档案时提醒一次（由 App 层展示可跳转浮层）
+   * 用户不建档也可正常生图，仅提示一致性风险
+   */
+  function notifyMissingProfilesOnce(): void {
+    if (hasNotifiedMissingProfiles) return;
+    if (hasActiveChatProfiles()) return;
+    hasNotifiedMissingProfiles = true;
+    options.notifyMissingProfiles?.();
   }
 
   /**

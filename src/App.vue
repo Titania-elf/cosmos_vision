@@ -18,6 +18,7 @@
     :initial-focus-message-paragraphs="settingsFocusMessageParagraphs"
     :initial-focus-paragraph-text="settingsFocusParagraphText"
     :initial-focus-paragraph-elements="settingsFocusParagraphElements"
+    :initial-tab="settingsInitialTab"
   />
   <TextInputDialog
     v-model:visible="textInputDialogVisible"
@@ -70,6 +71,27 @@
       </div>
     </Transition>
 
+    <!-- 未建档提醒浮层：可点击直达人物页 -->
+    <Transition name="cv-fade">
+      <div
+        v-if="profilesReminderVisible"
+        class="cv-profiles-reminder cosmos-vision-root"
+        :class="{ [DARK_CLASS]: darkMode }"
+        role="status"
+      >
+        <button type="button" class="cv-profiles-reminder-main" @click="openProfilesFromReminder">
+          <i class="fa-solid fa-address-card" />
+          <span class="cv-profiles-reminder-text">
+            <span class="cv-profiles-reminder-title">当前聊天还没有人物档案</span>
+            <span class="cv-profiles-reminder-sub">人物外貌一致性可能漂移，点击建立档案</span>
+          </span>
+        </button>
+        <button type="button" class="cv-profiles-reminder-close" aria-label="关闭提醒" @click="dismissProfilesReminder">
+          <i class="fa-solid fa-xmark" />
+        </button>
+      </div>
+    </Transition>
+
     <!-- Speed Dial 悬浮球 -->
     <div
       v-if="savedSettings.enabled"
@@ -78,8 +100,7 @@
       data-cv-tutorial="inline-generate-fab"
       :class="{ [DARK_CLASS]: darkMode }"
       :style="fabStyle"
-    >
-      <!-- Speed Dial 菜单 -->
+    >      <!-- Speed Dial 菜单 -->
       <Transition name="cv-speed-dial-menu">
         <div
           v-if="speedDialOpen"
@@ -207,6 +228,14 @@ interface ImageDownloadDialogState {
 /** 设置弹窗显隐状态 */
 const settingsVisible = ref(false);
 
+/** 设置弹窗打开时请求跳转的主标签（一次性，用后清空） */
+const settingsInitialTab = ref<'prompt-profiles' | null>(null);
+
+/** 未建档提醒浮层显隐 */
+const profilesReminderVisible = ref(false);
+/** 提醒自动消失计时器 */
+let profilesReminderTimer = 0;
+
 /** 打开设置时捕获的焦点段落文本快照 */
 const settingsFocusParagraphText = ref('');
 
@@ -270,6 +299,7 @@ const { isSelectionMode, toggleSelectionMode, exitSelectionMode, refreshGalleryT
     requestPromptPairInput: showPromptPairDialog,
     requestImageDownloadOptions: showImageDownloadDialog,
     getDarkMode: () => darkMode.value,
+    notifyMissingProfiles: showProfilesReminder,
   },
 );
 
@@ -383,6 +413,35 @@ function openSettings(): void {
   exitSelectionMode();
   ensureTavernHelper();
   settingsVisible.value = true;
+}
+
+/**
+ * 展示未建档提醒浮层（生图入口触发，自动消失）
+ */
+function showProfilesReminder(): void {
+  profilesReminderVisible.value = true;
+  window.clearTimeout(profilesReminderTimer);
+  profilesReminderTimer = window.setTimeout(() => {
+    profilesReminderVisible.value = false;
+  }, 10000);
+}
+
+/**
+ * 从提醒浮层直达人物页（复用 openSettings 的焦点快照逻辑）
+ */
+function openProfilesFromReminder(): void {
+  dismissProfilesReminder();
+  settingsInitialTab.value = 'prompt-profiles';
+  openSettings();
+  settingsInitialTab.value = null;
+}
+
+/**
+ * 关闭未建档提醒浮层
+ */
+function dismissProfilesReminder(): void {
+  window.clearTimeout(profilesReminderTimer);
+  profilesReminderVisible.value = false;
 }
 
 /**
@@ -559,6 +618,7 @@ watch(settingsVisible, visible => {
 onBeforeUnmount(() => {
   if (textInputDialogVisible.value) textInputDialogState.value.resolve(null);
   if (imageDownloadDialogVisible.value) imageDownloadDialogState.value.resolve(null);
+  window.clearTimeout(profilesReminderTimer);
   useLlmInspectorStore().stop();
   cleanup();
 });

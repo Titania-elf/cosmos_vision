@@ -45,6 +45,7 @@
             :title="sidebarExpanded ? undefined : item.label"
             @click="handleNavClick(item.value)"
           >
+            <span v-if="item.value === 'prompt-profiles' && needsProfileBadge" class="cv-nav-badge" />
             <svg
               v-if="item.value === 'comfyui'"
               fill="currentColor"
@@ -315,6 +316,8 @@ import StatsTab from '@/panel/tabs/StatsTab.vue';
 import SubTabNav from '@/panel/components/SubTabNav.vue';
 import { useSettingsOnboardingTutorial } from '@/panel/composables/useSettingsOnboardingTutorial';
 import { useSettingsStore } from '@/store/settings';
+import { hasActiveChatProfiles } from '@/services/prompt-profiles/chat-store';
+import { event_types, eventSource } from '@sillytavern/script';
 import {
   FOCUSED_PARAGRAPH_ELEMENTS_KEY,
   FOCUSED_PARAGRAPH_MESSAGE_ID_KEY,
@@ -350,6 +353,8 @@ interface Props {
   initialFocusMessageParagraphs?: string[];
   initialFocusParagraphText?: string;
   initialFocusParagraphElements?: HTMLElement[] | null;
+  /** 打开弹窗时跳转的主标签；缺省沿用上次浏览位置 */
+  initialTab?: NavValue | null;
 }
 
 const NAV_ITEMS = [
@@ -366,6 +371,7 @@ const props = withDefaults(defineProps<Props>(), {
   initialFocusMessageParagraphs: () => [],
   initialFocusParagraphText: '',
   initialFocusParagraphElements: null,
+  initialTab: null,
 });
 
 const visible = defineModel<boolean>('visible', { default: false });
@@ -595,6 +601,14 @@ onClickOutside(breadcrumbRef, () => {
   showSectionMenu.value = false;
 });
 
+/** 人物导航项未建档徽标：当前聊天无启用档案时显示 */
+const needsProfileBadge = ref(!hasActiveChatProfiles());
+const refreshProfileBadge = () => {
+  needsProfileBadge.value = !hasActiveChatProfiles();
+};
+eventSource.on(event_types.CHAT_CHANGED, refreshProfileBadge);
+onUnmounted(() => eventSource.removeListener(event_types.CHAT_CHANGED, refreshProfileBadge));
+
 /**
  * 打开设置弹窗时重置编辑状态
  */
@@ -603,6 +617,8 @@ function handleShow(): void {
   settingsStore.resetDraftSettings();
   closeConfirmDialog();
   sidebarExpanded.value = false;
+  if (props.initialTab) activeTab.value = props.initialTab;
+  needsProfileBadge.value = !hasActiveChatProfiles();
 }
 
 /**

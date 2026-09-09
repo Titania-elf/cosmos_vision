@@ -3,6 +3,7 @@ import '@/styles/inline-image.css';
 import '@/styles/inline-lightbox.css';
 import App from '@/App.vue';
 import { DARK_CLASS } from '@/constants/default-settings';
+import { bindChatProfilesPrefill } from '@/services/prompt-profiles/chat-prefill';
 import { cosmosPrimePt } from '@/services/primevue/primevue-pt';
 import { cosmosPrimePreset } from '@/services/primevue/primevue-theme';
 import { syncThemeColorToPrimary } from '@/services/primevue/theme-adapter';
@@ -62,4 +63,6 @@ $(async () => {
   syncThemeColorToPrimary();
   const $container = $('<div id="cosmos_vision">').appendTo('#extensions_settings');
   app.mount($container[0]);
+  // 新聊天预填空白人物档案（预链角色卡/人设资料条目，静默幂等）
+  bindChatProfilesPrefill();
 });

@@ -479,10 +479,17 @@ export default {
 
 ### 基本语法与多角色
 
-- **连字符与分隔**：用英文逗号分隔短语。为了使权重表达更稳定，推荐使用连字符写法代替空格（例如：用 \`long-blonde-hair\` 代替 \`long blonde hair\`）。
+- **分隔**：用英文逗号分隔短语，短语内部用空格连接（如 \`long blonde hair\`）。不要用连字符连接单词（如 \`long-blonde-hair\`），会破坏分词。
 - **人数标签**：多角色时直接写数量，例如：\`2girls, 3boys\`。
-- **BREAK 语法（强烈推荐）**：使用 \`BREAK\` 强制进行块分离，能有效防止多角色的特征混淆（如发色、瞳色、服装串色）。多角色场景必用。
-  - 用法示例：\`2girls, outdoor, beautiful-mountain, cinematic-lighting, BREAK, first-girl, long-wavy-hair, red-eyes, white-dress, BREAK, second-girl, short-purple-hair, green-eyes, blue-dress, holding-hands\`
+- **BREAK 语法（多角色必用）**：使用 \`BREAK\` 强制进行块分离，能有效防止多角色的特征混淆（如发色、瞳色、服装串色）。
+
+### 角色块标识头（多角色指代的关键）
+
+每个角色块必须以 \`1girl\` / \`1boy\` / \`1other\` 开头（不带数字）。这是生图引擎最强的"单个人物"信号，它会把块内后续所有 tag 绑定到该人物，从根本上避免动作与人物指代不清。
+
+- 角色块内只写**该角色自身**的外观、服饰、表情、动作，严禁把另一个角色的特征或动作写进本块。
+- **单人动作**写在角色自己的块内，紧跟在该角色特征之后（位置邻近即绑定）。
+- **互动/双人动作**（如 \`holding hands\`、\`embrace\`、\`pencil interlocking fingers\`）**只写在 base 段**（人数之后、第一个 BREAK 之前），两个角色块内都不要写。分不清归属的动作一律放 base 段。
 
 ### 权重标准格式与限制
 
@@ -493,16 +500,17 @@ export default {
     - \`((keyword))\` 叠加提升约 1.21 倍。
     - \`[keyword]\` 或 \`(keyword:0.9)\` 降低约 0.9 倍。
     - 显式数值：支持 \`(keyword:1.5)\` 这种数值格式。注意：权重值大于 1.5 极易导致画面崩溃/崩坏，建议合理控制。
-    - 多角色权重示例：\`2girls, first-girl, long-blonde-hair, BREAK, second-girl, short-black-hair, holding-hands\`（仅在极个别非常规特征需要防止混淆时，用极克制的括号，默认尽量不用）
 
-### Prompt 组织顺序
+### Prompt 组织顺序（严格遵守）
 
-重要信息前置：
-1. 主体与人数（如 \`1girl, solo\`，多角色时如 \`2girls\`）
-2. 场景 / 背景 / 环境
-3. 镜头 / 构图（如 \`cowboy shot, from above, close-up\`）
-4. 光影 / 氛围
-5. 角色外观与动作（多角色时用 \`BREAK\` 块分隔描述）
+正向提示词的段落顺序为：
+
+1. **base 段**：人数标签（\`2girls\` 等）+ 互动动作（若有）
+2. **角色块**：每个角色一个 BREAK 块，块内以 \`1girl\`/\`1boy\` 开头，然后是该角色外观、服饰、表情、单人动作
+3. **环境段**（最后一个 BREAK 块）：场景 / 背景 / 天气 / 时间
+4. **收尾**：镜头 / 构图（如 \`cowboy shot, from above\`）、光影 / 氛围、风格
+
+单角色时不使用 BREAK，直接按：人数 → 角色 → 环境 → 构图光影 收尾。
 
 ### negativePrompt 写法
 
@@ -516,7 +524,7 @@ export default {
 你必须输出以下 JSON 格式。其中，最终的 JSON 结果必须且只能被 \`<output>\` 与 \`</output>\` 标签完全包裹，在包裹区域之外不要附加任何无关的解释、闲聊或 Markdown 代码块标记（如 \`\`\`json）：
 
 {
-  "positivePrompt": "正向提示词：英文逗号分隔，多角色使用 BREAK 强制块分离，推荐连字符写法（禁止包含质量词）",
+  "positivePrompt": "正向提示词：按人数+互动 → 角色块（BREAK 分隔，每块以 1girl/1boy 开头）→ 环境 → 构图光影的顺序，短语内部用空格（禁止连字符连接单词，禁止质量词）",
   "negativePrompt": "画面不应出现的物体/元素（禁止质量词），英文逗号分隔"
 }
 
@@ -529,6 +537,7 @@ export default {
 4. 如果段落缺少视觉信息，根据上下文合理推断补充，不要询问
 5. 根据段落的情感氛围自动调整光影和色调
 6. 极度克制地使用括号权重。默认不使用任何括号，仅对极个别极易丢失的非常规核心标签进行极其克制的轻度强调，且数值绝对不要超过 1.3，严禁随意对普通物品或动作加权。
+7. 多角色时每个角色块必须以 \`1girl\`/\`1boy\` 开头；互动动作只写 base 段；角色块内禁止出现其他角色的特征或动作。
 
 </output_format>
 
@@ -541,20 +550,32 @@ export default {
 输出：
 <output>
 {
-  "positivePrompt": "1girl, solo, moonlight, indoor, bedroom, window, sheer-curtains, night-sky, stars-visible-through-window, cinematic-lighting, soft-volumetric-light, melancholic-atmosphere, silver-hair, long-hair, hair-down, green-eyes, pale-skin, black-silk-nightgown, leaning-against-window, looking-out-window, reflective-mood, soft-shadows, cool-color-palette",
-  "negativePrompt": "daytime, sunlight, outdoor, glasses, hat, bag, multiple-girls, crowd"
+  "positivePrompt": "1girl, solo, silver hair, long hair, hair down, green eyes, pale skin, black silk nightgown, leaning against window, looking out window, reflective mood, bedroom, window, sheer curtains, night sky, stars visible through window, moonlight, indoor, soft shadows, cool color palette, cinematic lighting, soft volumetric light, melancholic atmosphere",
+  "negativePrompt": "daytime, sunlight, outdoor, glasses, hat, bag, multiple girls, crowd"
 }
 </output>
 
-### 示例 2（多角色，BREAK 分隔）
+### 示例 2（多角色，角色块前置）
 
 输入："两个女孩在樱花树下追逐打闹。穿着水手服的短发女孩笑着跑在前面，身后是扎着双马尾、穿着格子裙的女孩伸手想要抓住她。"
 
 输出：
 <output>
 {
-  "positivePrompt": "2girls, outdoors, cherry-blossom-tree, cherry-blossoms, falling-petals, spring, dappled-sunlight, warm-lighting, joyful-atmosphere, vibrant-colors, BREAK, short-hair, sailor-uniform, running, laughing, looking-back, energetic, BREAK, twintails, plaid-skirt, reaching-out, chasing, smiling, playful",
+  "positivePrompt": "2girls, 1girl, short hair, sailor uniform, running, laughing, looking back, energetic, BREAK, 1girl, twintails, plaid skirt, reaching out, chasing, smiling, playful, BREAK, outdoors, cherry blossom tree, cherry blossoms, falling petals, spring, dappled sunlight, warm lighting, joyful atmosphere, vibrant colors, cowboy shot",
   "negativePrompt": "indoor, night, rain, winter, snow, 3girls, boy, animal, vehicle"
+}
+</output>
+
+### 示例 3（多角色含互动动作）
+
+输入："莉娜和艾米在雨中的屋檐下依偎着撑一把伞，莉娜揽着艾米的肩膀，两人都在笑。"
+
+输出：
+<output>
+{
+  "positivePrompt": "2girls, holding hands, embrace, 1girl, silver hair, long hair, red eyes, black jacket, arm around shoulder, smiling, BREAK, 1girl, brown hair, short hair, blue eyes, white dress, leaning close, smiling, BREAK, rain, eaves, umbrella, night, wet ground, reflection, soft lighting, intimate atmosphere, upper body",
+  "negativePrompt": "indoor, sunny, crowd, vehicle, animal"
 }
 </output>
 

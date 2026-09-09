@@ -109,7 +109,8 @@
         class="flex min-h-64 flex-col justify-center gap-(--cv-space-lg) rounded-(--cv-radius-sm) border-(length:--cv-border-width) border-solid border-(--cv-surface-variant) bg-(--cv-surface-container-low) p-(--cv-space-5xl) text-center text-(--cv-on-surface-variant)"
       >
         <i class="fa-solid fa-user-gear" />
-        <span>请创建一个人物设置</span>
+        <span>本聊天还没有{{ activeKind === 'user' ? '用户' : '角色' }}人物档案，点击上方按钮建立</span>
+        <span class="text-(length:--cv-font-size-xs)">人物档案跟随当前聊天存储，换聊天后需要重新建立</span>
       </section>
     </div>
   </div>
@@ -197,10 +198,12 @@ import CvMiniToggleSwitch from '@/panel/components/CvMiniToggleSwitch.vue';
 import StaticTagsDraftResult from '@/panel/components/StaticTagsDraftResult.vue';
 import WdTaggerSource from '@/panel/components/WdTaggerSource.vue';
 import PromptSourceEntryList from '@/panel/components/PromptSourceEntryList.vue';
+import { event_types, eventSource } from '@sillytavern/script';
 import type { PromptPerson, PromptPersonInsertMode, PromptPersonKind } from '@/constants/novelai';
 import { useSettingsStore } from '@/store/settings';
 import { appendStaticTags } from '@/services/prompt-profiles/static-tags-draft';
 import { createPromptPerson } from '@/services/prompt-profiles/runtime';
+import { persistChatProfiles, readChatProfiles } from '@/services/prompt-profiles/chat-store';
 import { isTutorialMockPersonId } from '@/panel/components/onboarding/mock-person';
 import { getCurrentCharacterKey, getCurrentUserPersonaKey } from '@/services/tavern-helper/prompt-profiles-context';
 import {
@@ -243,6 +246,8 @@ const TAG_PARSE_MODE_OPTIONS: Array<{
 ];
 
 const { settings } = useSettingsStore();
+/** 本聊天的人物档案：运行时数据，编辑即时落盘（chat_metadata），不走设置草稿 */
+const chatProfiles = ref<PromptPerson[]>(readChatProfiles());
 const activeKind = defineModel<PromptPersonKind>('kind', { default: 'character' });
 const activePersonId = ref('');
 const editingPersonId = ref<string | null>(null);
@@ -280,7 +285,7 @@ const showConfirm =
 const tagParseDialogStyle = { width: '30rem', maxWidth: 'calc(100vw - 2rem)' } as const;
 
 const filteredProfiles = computed(() =>
-  settings.promptProfiles.profiles.filter(person => person.kind === activeKind.value),
+  chatProfiles.value.filter(person => person.kind === activeKind.value),
 );
 const canConfirmTagParse = computed(() => {
   if (!tagParseDialogPerson.value || isParsingTags.value) return false;
@@ -309,6 +314,16 @@ watch(
   { immediate: true },
 );
 
+// 档案为运行时数据（chat_metadata）：任何编辑即时落盘，不走「应用更改」草稿流程
+watch(chatProfiles, () => persistChatProfiles(chatProfiles.value), { deep: true });
+
+// 切换聊天时重读档案（面板常开状态下聊天切换的同步）
+const onChatChanged = () => {
+  chatProfiles.value = readChatProfiles();
+};
+eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
+onUnmounted(() => eventSource.removeListener(event_types.CHAT_CHANGED, onChatChanged));
+
 /**
  * 创建空白人物
  */
@@ -316,6 +331,7 @@ function createBlankPerson(): void {
   const triggerKeywords = buildDefaultTriggerKeywords(activeKind.value);
   const name = buildDefaultPersonName(triggerKeywords[0] ?? '');
   addPerson(createPromptPerson(activeKind.value, name, triggerKeywords));
+  persistChatProfiles(chatProfiles.value);
 }
 
 /**
@@ -343,7 +359,7 @@ function buildDefaultPersonName(currentName: string): string {
  * @param person 新人物
  */
 function addPerson(person: PromptPerson): void {
-  settings.promptProfiles.profiles.push(person);
+  chatProfiles.value.push(person);
   activePersonId.value = person.id;
 }
 
@@ -415,13 +431,14 @@ async function confirmDelete(name: string): Promise<boolean> {
 }
 
 /**
- * 从设置中移除人物
+ * 从聊天档案中移除人物
  * @param id 人物 ID
  */
 function removePerson(id: string): void {
   if (editingPersonId.value === id) editingPersonId.value = null;
-  const index = settings.promptProfiles.profiles.findIndex(person => person.id === id);
-  if (index !== -1) settings.promptProfiles.profiles.splice(index, 1);
+  const index = chatProfiles.value.findIndex(person => person.id === id);
+  if (index !== -1) chatProfiles.value.splice(index, 1);
+  persistChatProfiles(chatProfiles.value);
 }
 
 /**
@@ -588,7 +605,7 @@ function appendToStaticTags(draft: string): void {
  */
 function getLockedDialogPerson(): PromptPerson | null {
   const id = tagParseDialogPerson.value?.id;
-  const person = settings.promptProfiles.profiles.find(item => item.id === id) ?? null;
+  const person = chatProfiles.value.find(item => item.id === id) ?? null;
   if (!person) toastr.error('人物已不存在，无法写入固定 tag');
   return person;
 }

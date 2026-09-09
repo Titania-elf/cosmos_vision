@@ -149,6 +149,28 @@
   height: 1.1em;
 }
 
+/* 人物导航项未建档徽标：绝对定位小圆点，收起态贴图标右上、展开态贴标签右侧 */
+.cosmos-vision-root .cv-nav-item {
+  position: relative;
+}
+
+.cosmos-vision-root .cv-nav-badge {
+  position: absolute;
+  top: 0.1em;
+  right: 0.1em;
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: var(--cv-radius-full);
+  background: var(--cv-error, #e5484d);
+  pointer-events: none;
+}
+
+.cosmos-vision-root .cv-sidebar--expanded .cv-nav-badge {
+  top: 50%;
+  right: var(--cv-space-lg);
+  transform: translateY(-50%);
+}
+
 .cosmos-vision-root .cv-sidebar--expanded .cv-nav-icon {
   font-size: var(--cv-font-size-lg);
 }
