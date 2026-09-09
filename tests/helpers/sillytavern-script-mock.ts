@@ -15,6 +15,16 @@ export const chat_metadata: Record<string, unknown> = {};
 /** 防抖保存聊天 mock */
 export const saveChatDebounced = () => {};
 
+/** 当前角色显示名（prompt-profiles-context 读取） */
+export const name2 = '';
+
+/** 当前角色索引（prompt-profiles-context 读取角色卡绑定 key 用） */
+export const this_chid = -1;
+
+/** 角色卡列表 mock */
+export const characters: Array<{ name?: string; avatar?: string }> = [];
+
+
 type EventListener = (...args: unknown[]) => void;
 
 /** 测试用事件总线：模拟 ST eventSource 的 on/emit/removeListener/makeLast */

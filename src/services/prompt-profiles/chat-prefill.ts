@@ -12,8 +12,14 @@ import {
 /** 预填开关的 chat_metadata key（独立于档案数据，按聊天记忆用户选择） */
 const PREFILL_FLAG_METADATA_KEY = 'cosmos_vision_profiles_prefilled';
 
+/** 延迟重试窗口（毫秒）：等待 ST 的 loadPersonaForCurrentChat 异步收敛后再补预填用户档案 */
+const PREFILL_RECONCILE_DELAY = 500;
+
 /** 事件绑定守卫 */
 let prefillBound = false;
+
+/** 延迟重试计时器（每次 CHAT_CHANGED 重置，避免跨聊天串扰） */
+let reconcileTimer = 0;
 
 /**
  * 绑定新聊天预填监听（插件入口调用一次）
@@ -29,27 +35,39 @@ export function bindChatProfilesPrefill(): void {
     } catch (error) {
       console.debug('[CosmosVision] 人物档案预填失败（已忽略）:', error);
     }
+    // 角色 key 在 CHAT_CHANGED 时已同步就绪；用户人设 key 依赖 ST 异步加载，
+    // 延迟一拍再补一次，等 persona 收敛后补建/修正用户档案，消除"慢半拍"读到上一聊天人设
+    window.clearTimeout(reconcileTimer);
+    reconcileTimer = window.setTimeout(() => {
+      try {
+        prefillBlankProfilesForCurrentChat();
+      } catch (error) {
+        console.debug('[CosmosVision] 人物档案延迟补填失败（已忽略）:', error);
+      }
+    }, PREFILL_RECONCILE_DELAY);
   });
 }
 
 /**
- * 为当前聊天预填空白人物档案（幂等）
+ * 为当前聊天预填空白人物档案（幂等，可纠偏）
  * 角色档案预链角色卡描述条目，用户档案预链 persona 条目；staticTags 留空由用户填写
- * 已有档案或已预填过的聊天不再处理
- * @returns 本次新创建的档案列表
+ * 首次调用创建两份；若首轮因 persona 未收敛而只建了角色档案，后续重试（延迟补填）会补上用户档案
+ * @returns 本次新创建/修正的档案列表
  */
 export function prefillBlankProfilesForCurrentChat(): PromptPerson[] {
   const profiles = readChatProfiles();
-  if (profiles.length > 0) return [];
-  if (isPrefilled()) return [];
+  if (isPrefilled() && profiles.some(person => person.kind === 'user')) return [];
 
   const created: PromptPerson[] = [];
+  const hasCharacter = profiles.some(person => person.kind === 'character');
+  const hasUser = profiles.some(person => person.kind === 'user');
+
   const characterName = getCurrentCharacterKey();
-  if (characterName) {
+  if (characterName && !hasCharacter) {
     created.push(buildBlankCharacterProfile(characterName));
   }
   const personaKey = getCurrentUserPersonaKey();
-  if (personaKey) {
+  if (personaKey && !hasUser) {
     created.push(buildBlankUserProfile(personaKey));
   }
 
