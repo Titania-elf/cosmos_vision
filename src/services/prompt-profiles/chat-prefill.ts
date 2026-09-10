@@ -87,10 +87,9 @@ export function prefillBlankProfilesForCurrentChat(): PromptPerson[] {
  */
 function buildBlankCharacterProfile(characterName: string): PromptPerson {
   const person = createPromptPerson('character', characterName, [characterName]);
-  person.templateEntries = [
+  person.templateEntries = buildPrefilledTemplateEntries(
     createPromptPersonCharacterDescriptionEntry(characterName),
-    ...createDefaultPromptPersonTemplateEntriesTail(),
-  ];
+  );
   return person;
 }
 
@@ -99,19 +98,22 @@ function buildBlankCharacterProfile(characterName: string): PromptPerson {
  */
 function buildBlankUserProfile(personaKey: string): PromptPerson {
   const person = createPromptPerson('user', personaKey, [personaKey]);
-  person.templateEntries = [
-    createPromptPersonUserPersonaEntry(personaKey),
-    ...createDefaultPromptPersonTemplateEntriesTail(),
-  ];
+  person.templateEntries = buildPrefilledTemplateEntries(createPromptPersonUserPersonaEntry(personaKey));
   return person;
 }
 
 /**
- * 读取默认人物开始/结束条目之外的尾部条目（保持既有默认结构）
+ * 构建预填档案的模板条目：人物开始 → 资料条目 → 人物结束
+ * 保留"人物开始"（含固定 tag 原样复述指令与 <person> 开标签），
+ * 使预填档案与手动新建人物结构一致，固定 tag 同样被强调复述
+ * @param sourceEntry 预链的资料条目
+ * @returns 模板条目数组
  */
-function createDefaultPromptPersonTemplateEntriesTail(): PromptPerson['templateEntries'] {
+function buildPrefilledTemplateEntries(sourceEntry: PromptPerson['templateEntries'][number]): PromptPerson['templateEntries'] {
   const entries = createPromptPerson('character', '__probe__').templateEntries;
-  return entries.slice(1);
+  const [startEntry, endEntry] = entries;
+  if (!startEntry || !endEntry) return [sourceEntry];
+  return [startEntry, sourceEntry, endEntry];
 }
 
 /**
