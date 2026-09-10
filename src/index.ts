@@ -8,6 +8,8 @@ import { cosmosPrimePreset } from '@/services/primevue/primevue-theme';
 import { syncThemeColorToPrimary } from '@/services/primevue/theme-adapter';
 import { whenSillyTavernReady } from '@/services/sillytavern/theme';
 import PrimeVue from 'primevue/config';
+import { createPinia, type Pinia } from 'pinia';
+import { provideDialogPlugins } from '@/composables/generationSchemeDialogLauncher';
 
 /**
  * CosmosVision 扩展入口
@@ -19,9 +21,12 @@ const app = createApp(App);
 declare const __PRIMEUI_LICENSE__: string;
 const primeUiLicense = __PRIMEUI_LICENSE__ || undefined;
 
-app.use(createPinia());
+/** 全局共享 pinia 实例（命令式弹窗小 app 复用，保证设置 store 单例） */
+const pinia: Pinia = createPinia();
+app.use(pinia);
 
-app.use(PrimeVue, {
+/** 主应用 PrimeVue 配置（命令式弹窗小 app 复用同一套主题/PT/zIndex） */
+const primeVueOptions = {
   license: primeUiLicense,
   theme: {
     preset: cosmosPrimePreset,
@@ -44,7 +49,12 @@ app.use(PrimeVue, {
     overlay: 100100,
     menu: 100100,
   },
-});
+} as const;
+
+app.use(PrimeVue, primeVueOptions);
+
+// 命令式生图方案弹窗复用主应用插件（pinia 单例 + PrimeVue 配置）
+provideDialogPlugins([next => next.use(pinia), next => next.use(PrimeVue, primeVueOptions)]);
 
 $(async () => {
   // 等待 ST APP_READY 后再读取 --SmartThemeQuoteColor，避免读到空串导致主题色退回灰阶
@@ -53,10 +63,3 @@ $(async () => {
   const $container = $('<div id="cosmos_vision">').appendTo('#extensions_settings');
   app.mount($container[0]);
 });
-
-// 使用命名空间 + 先 off 解绑：防止 HMR 或重复注入导致多次 unmount
-$(window)
-  .off('pagehide.cosmosVision')
-  .on('pagehide.cosmosVision', () => {
-    app.unmount();
-  });

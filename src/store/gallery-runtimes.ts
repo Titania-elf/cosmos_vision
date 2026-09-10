@@ -31,6 +31,27 @@ import { useSettingsStore } from '@/store/settings';
 import { deleteTemporaryImage, pruneTemporaryImages } from '@/services/inline-image/temporary-images';
 import { pruneFloorTailSlotsAboveMesId } from '@/services/inline-image/floor-tail-slot';
 
+/** 渲染器回调（命令式 DOM 渲染器注册；避免 store↔渲染器循环依赖） */
+let notifySlotChange: ((slotId: string) => void) | null = null;
+let clearRenderedGalleries: (() => void) | null = null;
+
+/**
+ * 注册命令式渲染器的数据变化通知回调
+ * @param notifier 通知函数
+ */
+export function registerGalleryRendererCallbacks(notifier: (slotId: string) => void, clear: () => void): void {
+  notifySlotChange = notifier;
+  clearRenderedGalleries = clear;
+}
+
+/**
+ * 广播 slot 数据变化（生图/收藏/删除/淘汰路径统一入口）
+ * @param slotId 位点 id
+ */
+function notifyGalleryChanged(slotId: string): void {
+  notifySlotChange?.(slotId);
+}
+
 /** 管理页类型互换后的画廊就地补丁（保留 objectUrl，避免闪烁） */
 export type GalleryKindPatch =
   | {
@@ -223,6 +244,7 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
     sessionRestored = false;
     started = false;
     unbindEvents();
+    clearRenderedGalleries?.();
     removeAllRenderContainers();
     runtimes.value = [];
     clearAllGallerySessions();
@@ -234,6 +256,7 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
    * 仅清空运行时 DOM（关插件，保留会话与监听）
    */
   function clearRuntimesOnly(): void {
+    clearRenderedGalleries?.();
     removeAllRenderContainers();
     runtimes.value = [];
     floorTailAnchors.clear();
@@ -260,12 +283,9 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
    */
   function patchSlotKind(slotId: string, patch: GalleryKindPatch): void {
     if (!slotId || disposed || !settingsStore.savedSettings.enabled) return;
-    runtimes.value
-      .flatMap(runtime => runtime.mounts)
-      .filter(mount => mount.mountKey.slotId === slotId)
-      .forEach(mount => {
-        mount.kindPatch = { ...patch };
-      });
+    void patch;
+    // 命令式渲染：类型互换直接通知重画（DOM 重画成本可接受，语义一致）
+    notifyGalleryChanged(slotId);
   }
 
   /**
@@ -288,6 +308,8 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
     const session = appendGeneratedSessionItem(slotId, item);
     ensureSlotRenderContainerForParagraph(paragraph, slotId);
     upsertSessionMount(session, paragraph);
+    // 命令式渲染：数据就绪即通知重画（新图与恢复同一条路）
+    notifyGalleryChanged(slotId);
     const scope = getCurrentInlineFavoriteScope();
     if (!scope) {
       console.warn('[CosmosVision] 当前聊天不可用，临时图片仅保留在内存中');
@@ -327,6 +349,8 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
     };
     const session = appendGeneratedSessionItem(slotId, item);
     upsertFloorTailSessionMount(session, mesId, swipeId, targetAnchor);
+    // 命令式渲染：数据就绪即通知重画
+    notifyGalleryChanged(slotId);
     const scope = getCurrentInlineFavoriteScope();
     if (!scope) {
       console.warn('[CosmosVision] 当前聊天不可用，临时图片仅保留在内存中');

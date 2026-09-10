@@ -1,9 +1,14 @@
 import { afterEach, vi } from 'vitest';
 import lodash from 'lodash';
+import JSZip from './helpers/sillytavern-jszip-mock';
 
 // 挂载 全局 lodash _
 (globalThis as any)._ = lodash;
 (window as any)._ = lodash;
+
+// 挂载全局 JSZip（favorites-download / vibe-download 等模块顶层引用）
+(globalThis as any).JSZip = JSZip;
+(window as any).JSZip = JSZip;
 
 // 挂载 toastr spy/mock
 const toastrMock = {

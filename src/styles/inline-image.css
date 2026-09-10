@@ -345,6 +345,39 @@ body.dark .cv-inline-toolbar {
   color: var(--cvp-gray-950) !important;
 }
 
+/* 命令式原生操作按钮（无 PrimeVue 基础样式，需补全 reset + 外观） */
+button.cv-inline-action-button--dom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  cursor: pointer;
+  margin: 0;
+  padding: 0.45em 0.9em;
+  line-height: 1.2;
+  background-image: none !important;
+  box-shadow: none !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  white-space: nowrap !important;
+  font-size: var(--cv-font-size-xs) !important;
+  border-radius: var(--cv-radius, 0.2667em) !important;
+}
+
+button.cv-inline-action-button--dom i {
+  font-size: 1em;
+  line-height: 1;
+}
+
+button.cv-inline-action-button--dom .cv-inline-action-button-label {
+  display: inline-block;
+}
+
+button.cv-inline-action-button--dom:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 /* secondary 按钮内图标同样固定黑色 */
 .cv-inline-img-actions .cv-inline-action-button[data-p-severity='secondary'] i {
   color: var(--cvp-gray-950) !important;
