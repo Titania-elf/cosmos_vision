@@ -39,9 +39,15 @@
                 @update:model-value="updateLora(lora.id, { enabled: Boolean($event) })"
               />
               <span
-                class="min-w-0 flex-1 overflow-hidden font-mono text-(length:--cv-font-size-xs) text-(--cv-on-surface) text-ellipsis whitespace-nowrap"
-                :class="{ 'text-(--cv-on-surface-variant)': !lora.name }"
-                :title="lora.name || '未选择 LoRA'"
+                class="min-w-0 flex-1 overflow-hidden font-mono text-(length:--cv-font-size-xs) text-ellipsis whitespace-nowrap transition-colors duration-200 ease-in-out"
+                :class="[
+                  lora.name ? 'cursor-pointer text-(--cv-on-surface) hover:text-(--cvp-primary-color)' : 'text-(--cv-on-surface-variant)',
+                ]"
+                :title="lora.name ? `${lora.name}（点击查看预览图）` : '未选择 LoRA'"
+                :role="lora.name ? 'button' : undefined"
+                :tabindex="lora.name ? 0 : undefined"
+                @click="lora.name && togglePreview(lora.id, lora.name, $event)"
+                @keydown.enter="lora.name && togglePreview(lora.id, lora.name, $event)"
               >
                 {{ lora.name || '未选择 LoRA' }}
               </span>
@@ -95,6 +101,35 @@
                   <i class="fa-solid fa-trash w-4 text-center" aria-hidden="true" />
                   删除
                 </button>
+              </div>
+            </Popover>
+            <!-- 预览图浮层：点击 LoRA 名称触发 -->
+            <Popover
+              v-if="previewLoraId === lora.id"
+              :ref="el => setPreviewPopoverRef(el)"
+              append-to="body"
+            >
+              <div class="flex max-h-[24rem] w-[min(20rem,80vw)] flex-col gap-(--cv-space-sm) p-(--cv-space-xs)">
+                <div v-if="previewState.status === 'loading'" class="flex items-center justify-center gap-(--cv-space-sm) py-(--cv-space-2xl) text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">
+                  <i class="fa-solid fa-spinner animate-spin" aria-hidden="true" />
+                  正在加载预览图…
+                </div>
+                <template v-else-if="previewState.status === 'ready'">
+                  <img
+                    :src="previewState.url"
+                    :alt="`${lora.name} 预览图`"
+                    class="max-h-[20rem] w-full rounded-(--cv-radius-sm) object-contain"
+                    loading="lazy"
+                    @error="onPreviewImageError"
+                  >
+                  <div v-if="previewState.imageFailed" class="text-center text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">
+                    预览图加载失败（缓存地址可能已失效）
+                  </div>
+                </template>
+                <div v-else class="flex items-center justify-center gap-(--cv-space-sm) px-(--cv-space-md) py-(--cv-space-2xl) text-center text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">
+                  <i class="fa-solid fa-image-slash" aria-hidden="true" />
+                  {{ previewState.message }}
+                </div>
               </div>
             </Popover>
             <!-- 未选择或点「更换」时：独立一行展示 Select -->
@@ -220,6 +255,7 @@ import {
   fetchComfyUILoraTriggerWordsBatch,
   type ComfyUILoraTriggerWordsBatchResult,
 } from '@/services/comfyui/lora-trigger-words';
+import { fetchComfyUILoraPreviewUrl } from '@/services/comfyui/lora-preview';
 
 interface TextOption {
   value: string;
@@ -269,6 +305,105 @@ const isFetchingTriggerWordsBulk = computed(() => bulkTriggerWordFetchCount.valu
 const moreMenuIds = ref<ReadonlySet<string>>(new Set());
 const moreMenuRefs = new Map<string, { toggle: (event: Event) => void; hide: () => void }>();
 
+/** 预览图浮层当前展示的条目 ID（同时只开一个，null 表示关闭） */
+const previewLoraId = ref<string | null>(null);
+/** 预览图浮层实例 */
+let previewPopoverRef: { toggle: (event: Event) => void; hide: () => void } | null = null;
+/** 预览图地址缓存（LoRA 名称 → 完整地址 / 错误信息 / 无图标记，避免重复请求） */
+const previewUrlCache = new Map<string, string | { error: string } | null>();
+/** 预览图浮层当前展示的内容状态 */
+const previewState = ref<LoraPreviewState>({ status: 'loading' });
+
+/** 预览图浮层内容状态 */
+type LoraPreviewState =
+  | { status: 'loading' }
+  | { status: 'ready'; url: string; imageFailed: boolean }
+  | { status: 'missing'; message: string };
+
+/**
+ * 打开/关闭预览图浮层
+ * @param id LoRA 条目 ID
+ * @param name LoRA 名称
+ * @param event 触发事件（传给 Popover 定位）
+ */
+async function togglePreview(id: string, name: string, event: Event): Promise<void> {
+  if (previewLoraId.value === id) {
+    closePreview();
+    return;
+  }
+  closePreview();
+  closeAllMoreMenus();
+  previewLoraId.value = id;
+  nextTick(() => previewPopoverRef?.toggle(event));
+  await loadLoraPreview(id, name);
+}
+
+/**
+ * 关闭预览图浮层
+ */
+function closePreview(): void {
+  if (!previewLoraId.value) return;
+  previewPopoverRef?.hide();
+  previewLoraId.value = null;
+}
+
+/**
+ * 登记/注销预览图 Popover 实例（模板 ref 回调）
+ * @param el Popover 实例或 null（卸载）
+ */
+function setPreviewPopoverRef(el: unknown): void {
+  previewPopoverRef = el ? (el as { toggle: (event: Event) => void; hide: () => void }) : null;
+}
+
+/**
+ * 加载 LoRA 预览图（带缓存，失败结果同样缓存避免重复请求）
+ * @param id 发起加载的 LoRA 条目 ID（用于丢弃迟到响应）
+ * @param name LoRA 名称
+ */
+async function loadLoraPreview(id: string, name: string): Promise<void> {
+  const key = name.trim();
+  if (!key) {
+    previewState.value = { status: 'missing', message: '未选择 LoRA' };
+    return;
+  }
+
+  const cached = previewUrlCache.get(key);
+  if (cached !== undefined) {
+    applyPreviewCache(cached);
+    return;
+  }
+
+  previewState.value = { status: 'loading' };
+  try {
+    const url = await fetchComfyUILoraPreviewUrl(props.comfyuiUrl, key);
+    previewUrlCache.set(key, url);
+    // 等待期间浮层可能已被关闭或切换到其他条目，迟到响应直接丢弃
+    if (previewLoraId.value === id) applyPreviewCache(url);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '获取预览图失败';
+    previewUrlCache.set(key, { error: message });
+    if (previewLoraId.value === id) previewState.value = { status: 'missing', message };
+    console.error('[ComfyUILoraPresetPanel]', error);
+  }
+}
+
+/**
+ * 把缓存值应用到预览浮层状态
+ * @param cached 缓存的预览结果（地址 / 无图 / 错误）
+ */
+function applyPreviewCache(cached: string | { error: string } | null): void {
+  if (typeof cached === 'string') previewState.value = { status: 'ready', url: cached, imageFailed: false };
+  else if (cached === null) previewState.value = { status: 'missing', message: '该 LoRA 暂无预览图' };
+  else previewState.value = { status: 'missing', message: cached.error };
+}
+
+/**
+ * 预览图 <img> 加载失败（缓存地址指向的文件已不存在等）
+ */
+function onPreviewImageError(): void {
+  if (previewState.value.status === 'ready') previewState.value = { ...previewState.value, imageFailed: true };
+}
+
 /**
  * 切换触发词编辑区的展开状态
  * @param id LoRA 条目 ID
@@ -291,6 +426,7 @@ function toggleMoreMenu(id: string, event: Event): void {
     return;
   }
   closeAllMoreMenus();
+  closePreview();
   const next = new Set(moreMenuIds.value);
   next.add(id);
   moreMenuIds.value = next;
