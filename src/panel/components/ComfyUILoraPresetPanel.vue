@@ -205,6 +205,16 @@
             批量添加
           </button>
           <button
+            v-if="activePreset"
+            type="button"
+            class="flex w-full cursor-pointer items-center justify-center gap-(--cv-space-sm) rounded-(--cv-radius-sm) border-(length:--cv-border-width) border-dashed border-(--cv-surface-variant) bg-[color-mix(in_srgb,var(--cv-surface-container-low)_42%,transparent)] py-(--cv-space-md) text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant) transition-all duration-200 ease-in-out hover:border-(--cv-outline) hover:bg-(--cv-surface-container-low) hover:text-(--cvp-primary-color)"
+            title="从 ComfyUI-Lora-Manager 的配方导入 LoRA 组合"
+            @click="openRecipeImport"
+          >
+            <i class="fa-solid fa-book-open" />
+            从配方导入
+          </button>
+          <button
             v-if="activePreset?.loras.length"
             type="button"
             class="flex w-full cursor-pointer items-center justify-center gap-(--cv-space-sm) rounded-(--cv-radius-sm) border-(length:--cv-border-width) border-dashed border-(--cv-surface-variant) bg-[color-mix(in_srgb,var(--cv-surface-container-low)_42%,transparent)] py-(--cv-space-md) text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant) transition-all duration-200 ease-in-out hover:border-(--cv-outline) hover:bg-(--cv-surface-container-low) hover:text-(--cvp-primary-color)"
@@ -231,6 +241,14 @@
     :existing-loras="activePreset?.loras ?? []"
     @confirm="addLorasBulk"
   />
+
+  <!-- 配方导入弹窗 -->
+  <ComfyUILoraRecipeDialog
+    v-model:visible="isRecipeImportVisible"
+    :comfyui-url="props.comfyuiUrl"
+    :lora-options="props.loraOptions"
+    @import="importRecipe"
+  />
 </template>
 
 <script setup lang="ts">
@@ -246,10 +264,18 @@ import {
 } from '@/constants/comfyui';
 import PresetSelector from '@/panel/components/PresetSelector.vue';
 import ComfyUILoraBulkAddDialog from '@/panel/components/comfyui/ComfyUILoraBulkAddDialog.vue';
+import ComfyUILoraRecipeDialog from '@/panel/components/comfyui/ComfyUILoraRecipeDialog.vue';
 import CvInlineNumber from '@/panel/components/CvInlineNumber.vue';
 import CvMiniButton from '@/panel/components/CvMiniButton.vue';
 import CvMiniToggleSwitch from '@/panel/components/CvMiniToggleSwitch.vue';
+import { requestConfirmation, type ShowConfirm } from '@/panel/confirm-action';
 import { dedupeTriggerWords, findComfyUILoraPreset } from '@/services/comfyui/lora-presets';
+import {
+  buildRecipePresetName,
+  createLoraOptionIndex,
+  mapRecipeLorasToSettings,
+  type ComfyUILoraRecipe,
+} from '@/services/comfyui/lora-recipes';
 import {
   fetchComfyUILoraTriggerWords,
   fetchComfyUILoraTriggerWordsBatch,
@@ -284,6 +310,7 @@ const emit = defineEmits<{
 
 const showPrompt =
   inject<(options: { title?: string; message: string; defaultValue?: string }) => Promise<string | null>>('showPrompt');
+const showConfirm = inject<ShowConfirm>('showConfirm');
 
 const presetOptions = computed<PresetOption[]>(() => props.presetSettings.presets.map(toPresetOption));
 const activePreset = computed(() =>
@@ -295,6 +322,8 @@ const expandedTriggerWordIds = ref<ReadonlySet<string>>(new Set());
 const swappingLoraIds = ref<ReadonlySet<string>>(new Set());
 /** 批量添加弹窗开合状态 */
 const isBulkAddVisible = ref(false);
+/** 配方导入弹窗开合状态 */
+const isRecipeImportVisible = ref(false);
 /** 正在单条拉取触发词的 LoRA 条目 ID */
 const fetchingTriggerWordIds = ref<ReadonlySet<string>>(new Set());
 /** 进行中的批量拉取任务数（批量添加与批量获取可能重叠） */
@@ -737,6 +766,97 @@ async function addLorasBulk(names: string[], shouldFetchTriggerWords: boolean): 
   // 等新条目随 props 回流后再回填触发词
   await nextTick();
   await fetchTriggerWordsInto(preset.id, names);
+}
+
+/**
+ * 打开配方导入弹窗
+ */
+function openRecipeImport(): void {
+  if (!requireComfyUIUrl()) return;
+  isRecipeImportVisible.value = true;
+}
+
+/**
+ * 把 LoRA Manager 配方导入为 LoRA 预设组（新建或替换当前组）
+ * @param payload 选中的配方、导入方式与是否随后获取触发词
+ */
+async function importRecipe(payload: {
+  recipe: ComfyUILoraRecipe;
+  mode: 'new' | 'replace';
+  fetchTriggerWords: boolean;
+}): Promise<void> {
+  const preset = activePreset.value;
+  if (!preset) return;
+
+  const index = createLoraOptionIndex(props.loraOptions.map(option => option.value));
+  const { entries, unmatched } = mapRecipeLorasToSettings(payload.recipe.loras, index);
+  if (!entries.length) {
+    toastr.warning('该配方没有可导入的 LoRA');
+    return;
+  }
+
+  // 提示文案用截断后的短名，避免确认弹窗被超长标题撑开
+  const label = buildRecipePresetName(payload.recipe.title, payload.recipe.baseModel, []);
+  if (payload.mode === 'replace') {
+    const confirmed = await requestConfirmation(showConfirm, {
+      title: '替换当前分组',
+      message: `将用配方「${label}」替换分组「${getPresetName(preset)}」中的全部 LoRA，是否继续？`,
+      acceptLabel: '替换',
+      cancelLabel: '取消',
+      severity: 'danger',
+    });
+    if (!confirmed) return;
+  }
+
+  const loras = entries.map(entry => createComfyUILoraSetting(uuidv4(), entry));
+  const targetPresetId = applyRecipeImport(payload.recipe, preset.id, payload.mode, loras);
+  reportRecipeImport(entries.length - unmatched.length, unmatched.length);
+  if (!payload.fetchTriggerWords) return;
+  if (!requireComfyUIUrl()) return;
+  // 等新条目随 props 回流后再回填触发词；未命中的条目本就禁用，不参与拉取
+  await nextTick();
+  await fetchTriggerWordsInto(
+    targetPresetId,
+    entries.filter(entry => entry.enabled).map(entry => entry.name),
+  );
+}
+
+/**
+ * 提交配方导入结果
+ * @param recipe 导入的配方（用于生成组名）
+ * @param presetId 当前激活预设组 ID
+ * @param mode 导入方式（新建分组 / 替换当前分组）
+ * @param loras 导入的 LoRA 列表
+ * @returns 实际写入的预设组 ID
+ */
+function applyRecipeImport(
+  recipe: ComfyUILoraRecipe,
+  presetId: string,
+  mode: 'new' | 'replace',
+  loras: ComfyUILoraSetting[],
+): string {
+  if (mode === 'replace') {
+    updatePreset(presetId, preset => ({ ...preset, loras }));
+    return presetId;
+  }
+
+  const preset = createComfyUILoraPreset(
+    uuidv4(),
+    buildRecipePresetName(recipe.title, recipe.baseModel, props.presetSettings.presets.map(item => item.name)),
+    loras,
+  );
+  emitPresetSettings([...props.presetSettings.presets, preset], preset.id);
+  return preset.id;
+}
+
+/**
+ * 汇总配方导入结果并提示
+ * @param matched 成功匹配到本地 LoRA 的条目数
+ * @param missing 本地缺失的条目数
+ */
+function reportRecipeImport(matched: number, missing: number): void {
+  if (matched) toastr.success(`已从配方导入 ${matched} 个 LoRA`);
+  if (missing) toastr.warning(`${missing} 个 LoRA 本地缺失，已按名称写入并保持禁用`);
 }
 
 /**
