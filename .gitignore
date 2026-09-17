@@ -24,5 +24,6 @@ components.d.ts
 /.trellis
 /.gemini
 /.grok
+/.zcode
 .ace-tool/
 AGENTS.md
