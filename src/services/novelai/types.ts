@@ -27,6 +27,8 @@ export interface NovelAIFinalPrompts {
   vibeReferences?: ImagePromptVibeRef[];
   vibeParameters?: NovelAIVibeParameters;
   characterPrompts?: CharacterPromptItem[];
+  /** 默认兼容旧网格坐标；公开接口使用连续归一化坐标（包括端点 0、1）。 */
+  characterCoordinateSpace?: 'legacy' | 'normalized';
 }
 
 export interface NovelAIRequestSnapshot {
@@ -79,4 +81,7 @@ export interface NovelAIImagesResult {
 /** NovelAI 请求控制选项 */
 export interface NovelAIRequestOptions {
   signal?: AbortSignal;
+  /** 公开接口关闭自动故障转移，避免不确定的失败触发第二次计费。 */
+  allowAccountFallback?: boolean;
+  onDownloading?: () => void;
 }

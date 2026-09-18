@@ -67,7 +67,7 @@ export async function generateNovelAIImageFromPrompts(
   prompts: NovelAIFinalPrompts,
   options: NovelAIRequestOptions = {},
 ): Promise<Blob> {
-  const request = createResolvedRequest(settings, prompts);
+  const request = buildNovelAIResolvedRequestFromPrompts(settings, prompts);
   return (await generateNovelAIImageFromResolvedRequest(request, options)).imageBlob;
 }
 
@@ -134,6 +134,7 @@ async function requestNovelAIImages(
       return await requestImagesWithAccount(request, prompts, account, imageCount, options);
     } catch (error) {
       if (options.signal?.aborted) throw createNovelAIAbortError();
+      if (options.allowAccountFallback === false) throw error;
       errors.push(formatAccountError(index, account, error));
     }
   }
@@ -186,8 +187,8 @@ export function buildNovelAIResolvedRequest(
   overrides?: NovelAIPromptOverrides,
   artistTagPool?: ArtistTagPoolSettings,
 ): NovelAIResolvedRequest {
-  const prompts = resolveFinalPrompts(settings, imagePromptPresets, extractSettings, overrides, artistTagPool);
-  return createResolvedRequest(settings, prompts);
+  const prompts = buildNovelAIFinalPrompts(settings, imagePromptPresets, extractSettings, overrides, artistTagPool);
+  return buildNovelAIResolvedRequestFromPrompts(settings, prompts);
 }
 
 /**
@@ -296,7 +297,7 @@ function buildHeaders(apiKey: string): HeadersInit {
  * @param artistTagPool 画师串池
  * @returns 正负提示词
  */
-function resolveFinalPrompts(
+export function buildNovelAIFinalPrompts(
   settings: NovelAISettings,
   imagePromptPresets: ImagePromptPresetSettings,
   extractSettings: PromptLlmExtractSettings,
@@ -337,7 +338,7 @@ function resolveFinalPrompts(
  * @param prompts 最终提示词
  * @returns 带账号顺序的请求对象
  */
-function createResolvedRequest(settings: NovelAISettings, prompts: NovelAIFinalPrompts): NovelAIResolvedRequest {
+export function buildNovelAIResolvedRequestFromPrompts(settings: NovelAISettings, prompts: NovelAIFinalPrompts): NovelAIResolvedRequest {
   const accounts = getNovelAIRequestAccounts(settings);
   const seed = resolveNovelAISeed(settings);
   return {
@@ -428,6 +429,8 @@ async function requestNovelAIAccountImages(
   imageCount: number,
 ): Promise<Blob[]> {
   const response = await requestNovelAIResponse(settings, prompts, account, options, seed, imageCount);
+  throwIfNovelAIAborted(options.signal);
+  try { options.onDownloading?.(); } catch { /* 进度通知不能触发账号重试。 */ }
   throwIfNovelAIAborted(options.signal);
   const contentType = response.headers.get('content-type') ?? '';
   if (contentType.includes('application/json')) {

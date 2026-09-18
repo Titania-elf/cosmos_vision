@@ -187,7 +187,10 @@ export const DEFAULT_SETTINGS: CosmosVisionSettings = {
     characterPositionXExtractPattern: DEFAULT_CHARACTER_POSITION_X_EXTRACT_PATTERN,
     characterPositionYExtractPattern: DEFAULT_CHARACTER_POSITION_Y_EXTRACT_PATTERN,
   },
-  promptLlmMessagePresets: defaultPromptLlmPresetSettings,
+  promptLlmMessagePresets: {
+    ...defaultPromptLlmPresetSettings,
+    presets: [...defaultPromptLlmPresetSettings.presets],
+  },
   promptProfiles: {
     profiles: [],
   },

@@ -13,6 +13,10 @@ import {
 import type { PromptLlmMessage, PromptLlmMessagePreset, PromptLlmMessagePresetSettings } from '@/constants/prompt-llm';
 import { resolvePromptLlmSourceMessage } from '@/services/prompt-llm/message-source';
 import { withPromptLlmMessageTriggerDefaults } from '@/services/prompt-llm/message-trigger';
+import { PROMPT_LLM_THEATER_TEXT_TOKEN, PROMPT_LLM_PREVIOUS_SCENES_TOKEN } from '@/constants/prompt-llm-tokens';
+
+/** 已下线的小剧场专用预设，旧设置中残留的条目不再保留。 */
+const RETIRED_THEATER_PRESET_ID = 'prompt-llm-theater-preset';
 
 /** LLM 运行时替换内容 */
 export interface PromptLlmRuntimeContent {
@@ -20,6 +24,8 @@ export interface PromptLlmRuntimeContent {
   participantContent: string;
   focusParagraphContent: string;
   specialRequestContent: string;
+  theaterTextContent?: string;
+  previousScenesContent?: string;
 }
 
 /** 旧版运行时保留条目迁移配置 */
@@ -34,7 +40,7 @@ const LEGACY_RUNTIME_MESSAGE_CONFIGS = [
   { id: PROMPT_LLM_PARTICIPANT_MESSAGE_ID, title: PROMPT_LLM_PARTICIPANT_MESSAGE_TITLE, token: PROMPT_LLM_PARTICIPANT_TOKEN },
 ] as const satisfies readonly LegacyRuntimeMessageConfig[];
 
-const PROMPT_LLM_CONTENT_TOKEN_PATTERN = /\{\{(?:history|participants|focus_paragraph|special_request)\}\}/g;
+const PROMPT_LLM_CONTENT_TOKEN_PATTERN = /\{\{(?:history|participants|focus_paragraph|special_request|theater_text|previous_scenes)\}\}/g;
 
 /**
  * 读取当前激活的提示词预设
@@ -48,14 +54,22 @@ export function getActivePromptLlmPreset(presetSettings: PromptLlmMessagePresetS
 }
 
 /**
- * 规范化 LLM 消息预设并迁移旧版运行时保留条目
+ * 规范化 LLM 消息预设并清理已下线的小剧场预设
  * @param presetSettings 预设集合
  * @returns 已规范化的预设集合
  */
 export function normalizePromptLlmMessagePresets(
   presetSettings: PromptLlmMessagePresetSettings,
 ): PromptLlmMessagePresetSettings {
-  return { ...presetSettings, presets: presetSettings.presets.map(normalizePromptLlmPreset) };
+  const presets = presetSettings.presets
+    .filter(preset => preset.id !== RETIRED_THEATER_PRESET_ID)
+    .map(normalizePromptLlmPreset);
+  // 小剧场改用内置预设；旧设置若正指向已下线预设，回落到默认预设。
+  const activePresetId =
+    presetSettings.activePresetId === RETIRED_THEATER_PRESET_ID
+      ? DEFAULT_PROMPT_LLM_PRESET_ID
+      : presetSettings.activePresetId;
+  return { ...presetSettings, activePresetId, presets };
 }
 
 /**
@@ -79,12 +93,14 @@ export async function resolvePromptLlmMessageContent(
  * @param runtimeContent 运行时内容
  * @returns 宏替换后的消息内容
  */
-function replacePromptLlmContentTokens(content: string, runtimeContent: PromptLlmRuntimeContent): string {
+export function replacePromptLlmContentTokens(content: string, runtimeContent: PromptLlmRuntimeContent): string {
   const replacements: Record<string, string> = {
     [PROMPT_LLM_HISTORY_TOKEN]: runtimeContent.historyContent,
     [PROMPT_LLM_PARTICIPANT_TOKEN]: runtimeContent.participantContent,
     [PROMPT_LLM_FOCUS_PARAGRAPH_TOKEN]: runtimeContent.focusParagraphContent,
     [PROMPT_LLM_SPECIAL_REQUEST_TOKEN]: runtimeContent.specialRequestContent,
+    [PROMPT_LLM_THEATER_TEXT_TOKEN]: runtimeContent.theaterTextContent ?? '',
+    [PROMPT_LLM_PREVIOUS_SCENES_TOKEN]: runtimeContent.previousScenesContent ?? '',
   };
   return content.replace(PROMPT_LLM_CONTENT_TOKEN_PATTERN, token => replacements[token] ?? token);
 }

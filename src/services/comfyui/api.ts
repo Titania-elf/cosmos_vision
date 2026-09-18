@@ -44,6 +44,10 @@ const COMFYUI_POLL_INTERVAL_MS = 1000;
 /** ComfyUI 请求控制选项 */
 export interface ComfyUIRequestOptions {
   signal?: AbortSignal;
+  /** false 只撤销本次等待，不发送会影响共享后端的 /interrupt。 */
+  interruptOnAbort?: boolean;
+  maxImages?: number;
+  onDownloading?: () => void;
 }
 
 /**
@@ -104,19 +108,24 @@ export async function generateComfyUIImagesFromResolvedRequest(
   const baseUrl = normalizeComfyUIUrl(settings.url);
   let cleanupAbort: () => void = () => undefined;
   try {
+    throwIfComfyUIAborted(timeout.signal);
     if (request.snapshot.imageBindings?.length) {
       await applyImageBindings(baseUrl, request.workflow, request.snapshot.imageBindings, timeout.signal);
     }
     const promptId = await queueComfyUIPrompt(baseUrl, request.workflow, timeout.signal);
-    cleanupAbort = bindComfyUIAbort(baseUrl, timeout.signal);
+    cleanupAbort = options.interruptOnAbort === false ? () => undefined : bindComfyUIAbort(baseUrl, timeout.signal);
     const historyResult = await pollComfyUIHistory(
       baseUrl,
       promptId,
       request.imageOutputNodeId,
       timeout.signal,
     );
+    throwIfComfyUIAborted(timeout.signal);
+    try { options.onDownloading?.(); } catch { /* 进度回调不影响已提交任务。 */ }
+    throwIfComfyUIAborted(timeout.signal);
+    const images = options.maxImages === undefined ? historyResult.images : historyResult.images.slice(0, options.maxImages);
     return await Promise.all(
-      historyResult.images.map(image => fetchComfyUIImage(baseUrl, image, timeout.signal)),
+      images.map(image => fetchComfyUIImage(baseUrl, image, timeout.signal)),
     );
   } catch (error) {
     throwIfRequestTimedOut(timeout, 'ComfyUI 生图', settings.timeout);

@@ -161,6 +161,7 @@ export async function buildPromptLlmOrderedPrompts(
   presetSettings: PromptLlmMessagePresetSettings,
   runtimeContent: PromptLlmRuntimeContent,
   triggerContext?: PromptLlmTriggerContext,
+  resolveContent: typeof resolvePromptLlmMessageContent = resolvePromptLlmMessageContent,
 ): Promise<TavernHelperRolePrompt[]> {
   const messages = getActivePromptLlmPreset(presetSettings).messages.filter(message =>
     canSendPromptLlmMessage(message, runtimeContent, triggerContext),
@@ -168,7 +169,7 @@ export async function buildPromptLlmOrderedPrompts(
   const prompts = await Promise.all(
     messages.map(async message => ({
       role: message.role,
-      content: await resolvePromptLlmMessageContent(message, runtimeContent),
+      content: await resolveContent(message, runtimeContent),
     })),
   );
   return prompts.filter(prompt => prompt.content.trim());

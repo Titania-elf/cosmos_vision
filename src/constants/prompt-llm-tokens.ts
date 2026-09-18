@@ -15,3 +15,9 @@ export const PROMPT_LLM_HISTORY_TOKEN = '{{history}}';
 
 /** Prompt LLM 人物总体信息宏 */
 export const PROMPT_LLM_PARTICIPANT_TOKEN = '{{participants}}';
+
+/** 公开接口提供的完整小剧场正文，尚未选择焦点段落。 */
+export const PROMPT_LLM_THEATER_TEXT_TOKEN = '{{theater_text}}';
+
+/** 此前选出的画面，作为避免重复的参考。 */
+export const PROMPT_LLM_PREVIOUS_SCENES_TOKEN = '{{previous_scenes}}';

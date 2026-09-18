@@ -1,5 +1,9 @@
 export const saveSettingsDebounced = () => {};
 
+export function getRequestHeaders(): Record<string, string> {
+  return { 'Content-Type': 'application/json', 'X-CSRF-Token': 'test-csrf' };
+}
+
 /** 测试用聊天数组（各用例自行填充/清空，模拟 ST 全局 chat） */
 export const chat: unknown[] = [];
 

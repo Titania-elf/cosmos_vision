@@ -11,6 +11,10 @@ import { whenSillyTavernReady } from '@/services/sillytavern/theme';
 import PrimeVue from 'primevue/config';
 import { createPinia, type Pinia } from 'pinia';
 import { provideDialogPlugins } from '@/composables/generationSchemeDialogLauncher';
+import { registerCosmosVisionPublicApi } from '@/services/public-api';
+import { useSettingsStore } from '@/store/settings';
+
+const publicApi = registerCosmosVisionPublicApi();
 
 /**
  * CosmosVision 扩展入口
@@ -60,6 +64,11 @@ provideDialogPlugins([next => next.use(pinia), next => next.use(PrimeVue, primeV
 $(async () => {
   // 等待 ST APP_READY 后再读取 --SmartThemeQuoteColor，避免读到空串导致主题色退回灰阶
   await whenSillyTavernReady();
+  const settingsStore = useSettingsStore(pinia);
+  if (publicApi.initialize(() => settingsStore.savedSettings)) {
+    watch(() => settingsStore.savedSettings, () => publicApi.capabilitiesChanged(), { deep: true });
+  }
+  if (document.getElementById('cosmos_vision')) return;
   syncThemeColorToPrimary();
   const $container = $('<div id="cosmos_vision">').appendTo('#extensions_settings');
   app.mount($container[0]);

@@ -258,8 +258,8 @@ export function applyV4Prompts(
 
   for (const item of promptCharacters) {
     const center = {
-      x: toNovelAICoordinate(item.position.x),
-      y: toNovelAICoordinate(item.position.y),
+      x: prompts.characterCoordinateSpace === 'normalized' ? item.position.x : toNovelAICoordinate(item.position.x),
+      y: prompts.characterCoordinateSpace === 'normalized' ? item.position.y : toNovelAICoordinate(item.position.y),
     };
     const positive = item.positivePrompt?.trim() || '';
     const negative = item.negativePrompt?.trim() || '';

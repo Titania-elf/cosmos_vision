@@ -39,10 +39,31 @@ export function buildComfyUIResolvedRequest(
   prompts: ImagePromptPair,
   artistTagPool?: ArtistTagPoolSettings,
 ): ComfyUIResolvedRequest {
+  return buildComfyUIResolvedRequestFromPrompts(
+    settings, buildComfyUIFinalPrompts(settings, presetSettings, prompts, artistTagPool), { appendLoraTriggerWords: false },
+  );
+}
+
+/** 仅合并最终文本，不推进种子、不构造或提交工作流。 */
+export function buildComfyUIFinalPrompts(
+  settings: ComfyUISettings,
+  presetSettings: ImagePromptPresetSettings,
+  prompts: ImagePromptPair,
+  artistTagPool?: ArtistTagPoolSettings,
+): ImagePromptPair {
   const pair = buildImagePromptPair(presetSettings, settings, prompts);
   // 每次请求只抽一次画师串,前置到正向提示词最前面
   const positivePrompt = prependArtistTag(pair.positivePrompt, pickRandomArtistTag(artistTagPool));
-  return buildComfyUIResolvedRequestFromPrompts(settings, { ...pair, positivePrompt });
+  return {
+    positivePrompt: prependLoraTriggerWords(positivePrompt, getActiveComfyUILoraTriggerWords(settings.loraPresets)),
+    negativePrompt: pair.negativePrompt,
+  };
+}
+
+export interface ComfyUIRequestBuildOptions {
+  appendLoraTriggerWords?: boolean;
+  /** 已知的 batch_size 标量按公开接口要求约束；内部多输出在下载时裁取。 */
+  batchSize?: number;
 }
 
 /**
@@ -54,16 +75,22 @@ export function buildComfyUIResolvedRequest(
 export function buildComfyUIResolvedRequestFromPrompts(
   settings: ComfyUISettings,
   prompts: ImagePromptPair,
+  options: ComfyUIRequestBuildOptions = {},
 ): ComfyUIResolvedRequest {
   const workflowJson = getActiveComfyUIWorkflowJson(settings.workflowPresets);
   const source = parseAndValidateWorkflow(settings, workflowJson);
   const { positivePrompt, negativePrompt } = requirePromptPair(prompts);
   // 触发词前置到画师串之前：触发词 → 画师串 → 用户提示词
-  const triggeredPositivePrompt = prependLoraTriggerWords(
+  const triggeredPositivePrompt = options.appendLoraTriggerWords === false ? positivePrompt : prependLoraTriggerWords(
     positivePrompt,
     getActiveComfyUILoraTriggerWords(settings.loraPresets),
   );
   const workflow = structuredClone(source) as ComfyUIWorkflow;
+  if (options.batchSize !== undefined) {
+    for (const node of Object.values(workflow)) {
+      if (typeof node.inputs.batch_size === 'number') node.inputs.batch_size = options.batchSize;
+    }
+  }
   // 激活 LoRA 预设是唯一事实源：每次请求覆写工作流中的兼容节点，
   // 保证切组/改强度后立即生效，不依赖面板是否曾写入工作流草稿
   applyActiveLoraPreset(workflow, settings.loraPresets);

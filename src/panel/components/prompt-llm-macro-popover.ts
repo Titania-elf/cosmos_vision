@@ -1,5 +1,6 @@
 import type { PopoverPassThroughOptions } from 'primevue/popover';
 import './prompt-llm-macro-popover.css';
+import { PROMPT_LLM_THEATER_TEXT_TOKEN, PROMPT_LLM_PREVIOUS_SCENES_TOKEN } from '@/constants/prompt-llm-tokens';
 
 import {
   PROMPT_LLM_FIXED_TAGS_TOKEN,
@@ -15,6 +16,8 @@ export const PROMPT_LLM_TOKEN_OPTIONS = [
   { label: '人物信息', token: PROMPT_LLM_PARTICIPANT_TOKEN },
   { label: '焦点段落', token: PROMPT_LLM_FOCUS_PARAGRAPH_TOKEN },
   { label: '特别要求', token: PROMPT_LLM_SPECIAL_REQUEST_TOKEN },
+  { label: '小剧场全文', token: PROMPT_LLM_THEATER_TEXT_TOKEN },
+  { label: '此前画面', token: PROMPT_LLM_PREVIOUS_SCENES_TOKEN },
 ] as const;
 
 export const PROMPT_PERSON_TOKEN_OPTIONS = [
