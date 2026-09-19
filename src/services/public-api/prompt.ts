@@ -5,6 +5,7 @@ import { buildPromptLlmOrderedPrompts } from '@/services/prompt-llm/runtime-requ
 import {
   getActivePromptLlmPreset,
   replacePromptLlmContentTokens,
+  resolvePresetAppendProvidedContext,
   type resolvePromptLlmMessageContent,
 } from '@/services/prompt-llm/message-preset';
 import {
@@ -17,10 +18,11 @@ import { characterPromptSchema, sceneSchema } from './validation';
 import type { ImagePrompts, PreparePromptRequest, SceneSelection } from './types';
 
 const OUTPUT_RULES = `仅返回一个 JSON 对象（可以包裹在 <output> 中），字段固定为：
-{"scene":{"summary":"一至三句中文画面描述","sourceExcerpt":"从本次 theater_text 连续逐字复制的原文"},"positivePrompt":"绘画正向提示词","negativePrompt":"绘画负向提示词","characterPrompts":[]}
+{"scene":{"summary":"一至三句中文画面描述"},"positivePrompt":"绘画正向提示词","negativePrompt":"绘画负向提示词","characterPrompts":[]}
 characterPrompts 必须是数组。每个元素字段为 positivePrompt、negativePrompt、position:{x,y}，坐标范围 0–1。
 无可选画面时返回 {"scene":null,"positivePrompt":"","negativePrompt":"","characterPrompts":[]}。
-theater_text 是尚未选景的完整作品（预设的焦点段落槽位收到的就是它），不是已确定的焦点段落。只选一个同一时空的画面；不得拼贴，不返回推理过程。`;
+theater_text 是尚未选景的完整作品（预设的焦点段落槽位收到的就是它），不是已确定的焦点段落。只选一个同一时空的画面；不得拼贴，不返回推理过程。
+scene.summary 用你自己的话概括画面即可，不要逐字摘抄正文原文。`;
 
 /** supplied-only：只解析本次显式提供的上下文，不读取世界书或当前聊天。 */
 const resolveProvidedMessage: typeof resolvePromptLlmMessageContent = async (message, content) => {
@@ -74,12 +76,16 @@ export async function buildTheaterMessages(
     { imageSource: request.imageSource, modelId: model, historyContent: request.context.history.join('\n\n') },
     resolveProvidedMessage,
   );
-  return [
+  const prompts: TavernHelperRolePrompt[] = [
     ...messages,
     { role: 'system', content: `${OUTPUT_RULES}\n本次图像来源：${request.imageSource}；模型：${model}。` },
-    {
+  ];
+  // 预设已用 {{theater_text}} 等宏自行注入素材时（如内置默认预设），跳过这条兜底，避免正文被重复注入。
+  // 自定义预设未写这些宏时保留兜底，省去用户手写宏；此时 previous_scenes 也仅由这条携带。
+  if (resolvePresetAppendProvidedContext(preset)) {
+    prompts.push({
       role: 'user',
-      // 即便用户预设不含输入宏，也必须完整提交正文。sceneId 不用于查询或提示词补齐。
+      // 兜底：完整提交原始素材。sceneId 不用于查询或提示词补齐。
       content: JSON.stringify({
         theater_text: request.theaterText,
         participants: request.context.participants,
@@ -87,8 +93,9 @@ export async function buildTheaterMessages(
         special_request: request.specialRequest,
         previous_scenes: request.previousScenes ?? [],
       }),
-    },
-  ];
+    });
+  }
+  return prompts;
 }
 
 export function buildTheaterJsonSchema(): TavernHelperJsonSchema {
@@ -129,9 +136,8 @@ export function buildTheaterJsonSchema(): TavernHelperJsonSchema {
               type: 'object',
               properties: {
                 summary: { type: 'string', description: '一至三句中文画面描述' },
-                sourceExcerpt: { type: 'string', description: 'theater_text 中连续、逐字一致的原文' },
               },
-              required: ['summary', 'sourceExcerpt'],
+              required: ['summary'],
               additionalProperties: false,
             },
           ],
@@ -149,10 +155,7 @@ const outputSchema = z.object({
   characterPrompts: z.array(characterPromptSchema),
 });
 
-export function extractTheaterResult(
-  rawText: string,
-  theaterText: string,
-): { scene: SceneSelection; prompts: ImagePrompts } {
+export function extractTheaterResult(rawText: string): { scene: SceneSelection; prompts: ImagePrompts } {
   let text = rawText.trim();
   const outputs = [...text.matchAll(/<output>\s*([\s\S]*?)\s*<\/output>/gi)];
   if (outputs.length > 1) throw new PublicApiError('INVALID_RESPONSE', '提示词模型返回了多个结果，请重新分析。');
@@ -168,8 +171,8 @@ export function extractTheaterResult(
   if (!parsed.success) throw new PublicApiError('INVALID_RESPONSE', '提示词模型返回的画面或人物提示词格式不正确。');
   const { scene, ...prompts } = parsed.data;
   if (scene === null) throw new PublicApiError('NO_SCENE', '未能从正文中确定有依据的画面，请补充内容或调整本次要求。');
-  if (!prompts.positivePrompt.trim() || !theaterText.includes(scene.sourceExcerpt)) {
-    throw new PublicApiError('INVALID_RESPONSE', '提示词为空或画面摘录不是正文中的连续原文，请重新分析。');
+  if (!prompts.positivePrompt.trim()) {
+    throw new PublicApiError('INVALID_RESPONSE', '提示词模型未返回有效的正向提示词，请重新分析。');
   }
   return { scene, prompts };
 }

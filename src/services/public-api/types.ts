@@ -16,9 +16,8 @@ export interface ImagePrompts {
 }
 
 export interface SceneSelection {
+  /** 一至三句中文画面描述，用作配图说明；不再要求逐字摘录正文。 */
   summary: string;
-  /** theaterText 中连续、逐字一致的原文。 */
-  sourceExcerpt: string;
 }
 
 export interface PromptDraft {

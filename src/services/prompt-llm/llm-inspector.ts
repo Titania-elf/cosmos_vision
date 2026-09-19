@@ -85,3 +85,50 @@ export function buildLlmInspectorLabel(context: PromptLlmContext): string {
   if (!summary) return '段落生图';
   return summary.length > 60 ? `${summary.slice(0, 60)}…` : summary;
 }
+
+/** 监视快照的展示信息（不含密钥） */
+export interface LlmInspectorRequestDisplay {
+  accountName: string;
+  /** 连接方式展示（酒馆代理预设名或接口地址） */
+  endpoint: string;
+  model: string;
+}
+
+/**
+ * 构建公开接口（小剧场）请求的监视快照
+ * 该路径不走 generateRaw，改由酒馆后端直连提交，payload 形状不同，因此单独构造
+ * @param id 公开接口本次请求标识
+ * @param messages 已组装待发送的指令
+ * @param display 账号名、脱敏连接文本与模型
+ * @param label 会话标签
+ * @returns 可展示的请求快照
+ */
+export function buildProvidedLlmInspectorSnapshot(
+  id: string,
+  messages: TavernHelperRolePrompt[],
+  display: LlmInspectorRequestDisplay,
+  label: string,
+): LlmInspectorRequestSnapshot {
+  return {
+    id,
+    label,
+    startedAt: Date.now(),
+    prompts: readSnapshotPrompts(messages),
+    model: display.model || '(未配置)',
+    endpoint: display.endpoint,
+    accountName: display.accountName,
+    // 公开接口固定为非流式单次提交
+    streamEnabled: false,
+  };
+}
+
+/**
+ * 构建小剧场监视会话标签：正文摘要
+ * @param theaterText 本次小剧场正文
+ * @returns 标签文本
+ */
+export function buildTheaterLlmInspectorLabel(theaterText: string): string {
+  const summary = String(theaterText || '').replace(/\s+/g, ' ').trim();
+  if (!summary) return '小剧场选景';
+  return `小剧场选景：${summary.length > 60 ? `${summary.slice(0, 60)}…` : summary}`;
+}

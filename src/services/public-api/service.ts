@@ -2,6 +2,7 @@ import type { CosmosVisionSettings } from '@/constants/novelai';
 import { PublicApiError, throwIfAborted } from './errors';
 import { readGeneratedImage } from './images';
 import { getProvidedLlmError, requestProvidedPrompt, snapshotProvidedLlmConfig } from './llm';
+import { recordTheaterLlmFailure, recordTheaterLlmRequest, recordTheaterLlmSuccess } from './inspector';
 import { buildTheaterJsonSchema, buildTheaterMessages, extractTheaterResult } from './prompt';
 import { finalizeImagePrompts, generatePublicImage, readImageSourceStatus, requireImageSource } from './providers';
 import { PublicTaskRunner } from './tasks';
@@ -67,14 +68,22 @@ export function createCosmosVisionPublicApi(getSettings: SettingsSource): Cosmos
             throwIfAborted(task.signal);
             task.progress('analyzing');
             throwIfAborted(task.signal);
-            const rawText = await requestProvidedPrompt(
-              llmConfig,
-              messages,
-              settings.promptLlm.preferJsonSchemaExtraction ? buildTheaterJsonSchema() : undefined,
-              task.signal,
-            );
+            recordTheaterLlmRequest(settings.promptLlm, task.requestId, request.theaterText, messages);
+            let rawText: string;
+            try {
+              rawText = await requestProvidedPrompt(
+                llmConfig,
+                messages,
+                settings.promptLlm.preferJsonSchemaExtraction ? buildTheaterJsonSchema() : undefined,
+                task.signal,
+              );
+            } catch (error) {
+              recordTheaterLlmFailure(task.requestId, error);
+              throw error;
+            }
+            recordTheaterLlmSuccess(settings.promptLlm, task.requestId, rawText);
             throwIfAborted(task.signal);
-            const result = extractTheaterResult(rawText, request.theaterText);
+            const result = extractTheaterResult(rawText);
             return validateDraft({
               version: 1,
               imageSource: request.imageSource,

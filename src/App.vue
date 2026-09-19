@@ -156,7 +156,7 @@
   </Teleport>
   <!-- 短码 / 临时画廊：Teleport 到聊天内 cv-render -->
   <InlineGalleryRuntimeHost />
-  <!-- LLM 请求监视弹窗：由悬浮球次级菜单打开，实时查看内联生图的指令与模型响应 -->
+  <!-- LLM 请求监视弹窗：由悬浮球次级菜单打开，实时查看内联生图与小剧场选景的指令与模型响应 -->
   <LlmInspectorDrawer v-model:open="llmInspectorOpen" />
 </template>
 

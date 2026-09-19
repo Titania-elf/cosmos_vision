@@ -296,6 +296,14 @@ export interface PromptLlmMessagePreset {
   id: string;
   name: string;
   messages: PromptLlmMessage[];
+  /**
+   * 小剧场选景时，是否在预设消息之后附加一条包含完整原始素材（正文、人物、历史、
+   * 特别要求、既往画面）的 user 消息作为兜底。
+   * 预设已用 {{theater_text}} 等宏自行注入这些内容时应关闭，避免重复注入；
+   * 自定义预设未写这些宏时应开启，省去手写宏的麻烦。
+   * 缺省语义由 resolvePresetAppendProvidedContext 决定（内置默认预设关，其余开）。
+   */
+  appendProvidedContext?: boolean;
 }
 
 /** 提示词 LLM 消息预设集合 */

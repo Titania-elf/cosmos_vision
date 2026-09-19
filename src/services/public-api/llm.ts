@@ -1,6 +1,8 @@
 import { getRequestHeaders } from '@sillytavern/script';
 import yaml from 'yaml';
 import type { PromptLlmAccount, PromptLlmSettings } from '@/constants/prompt-llm';
+import { getPromptLlmAccountDisplayName } from '@/constants/prompt-llm';
+import type { LlmInspectorRequestDisplay } from '@/services/prompt-llm/llm-inspector';
 import { getAvailablePromptLlmAccounts, getPromptLlmRequestAccounts } from '@/services/prompt-llm/router';
 import {
   buildCustomApi,
@@ -44,11 +46,19 @@ export function getProvidedLlmError(settings: PromptLlmSettings): string | undef
     : '请配置并启用可用的提示词 LLM 账号；引用的酒馆代理预设也必须存在。';
 }
 
-/** 在任务开始时解析连接配置，之后不再读取当前代理预设或其他全局状态。 */
-export function snapshotProvidedLlmConfig(settings: PromptLlmSettings): Record<string, unknown> {
+/** 解析本次实际使用的账号与连接；密钥仅经由此返回值传给请求，不进监视记录。 */
+function resolveProvidedAccount(
+  settings: PromptLlmSettings,
+): { account: PromptLlmAccount; connection: { url: string; key: string } } {
   const account = getPromptLlmRequestAccounts(settings).find(candidate => readConnection(candidate));
   const connection = account && readConnection(account);
   if (!account || !connection) throw new PublicApiError('LLM_NOT_CONFIGURED', getProvidedLlmError(settings)!);
+  return { account, connection };
+}
+
+/** 在任务开始时解析连接配置，之后不再读取当前代理预设或其他全局状态。 */
+export function snapshotProvidedLlmConfig(settings: PromptLlmSettings): Record<string, unknown> {
+  const { account, connection } = resolveProvidedAccount(settings);
   const api = buildCustomApi(settings, account);
   const payload: Record<string, unknown> = {
     chat_completion_source: account.source.trim(),
@@ -84,6 +94,22 @@ export function snapshotProvidedLlmConfig(settings: PromptLlmSettings): Record<s
     payload.custom_include_headers = yaml.stringify(headers);
   }
   return payload;
+}
+
+/**
+ * 读取本次请求的监视展示信息：账号名、脱敏连接文本与模型
+ * 只用于 Cosmos 自己的 LLM 请求监视，不含接口地址中的密钥或认证头
+ * @param settings 提示词 LLM 配置
+ * @returns 可展示的请求信息
+ */
+export function describeProvidedLlm(settings: PromptLlmSettings): LlmInspectorRequestDisplay {
+  const { account, connection } = resolveProvidedAccount(settings);
+  const proxyPreset = account.proxyPreset.trim();
+  return {
+    accountName: getPromptLlmAccountDisplayName(account),
+    endpoint: proxyPreset ? `代理预设 ${proxyPreset}` : connection.url,
+    model: account.model.trim() || '(未配置)',
+  };
 }
 
 /**

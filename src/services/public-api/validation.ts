@@ -9,7 +9,7 @@ const nonblank = z.string().refine(value => Boolean(value.trim()));
 const identifier = nonblank.max(256);
 const source = z.enum(['novelai', 'comfyui']);
 
-export const sceneSchema = z.object({ summary: nonblank, sourceExcerpt: nonblank });
+export const sceneSchema = z.object({ summary: nonblank });
 export const characterPromptSchema = z.object({
   positivePrompt: z.string(),
   negativePrompt: z.string(),
@@ -68,7 +68,7 @@ export function validatePrepareRequest(input: unknown): PreparePromptRequest {
     request.context.participants,
     ...request.context.history,
     request.specialRequest,
-    ...(request.previousScenes ?? []).flatMap(scene => [scene.summary, scene.sourceExcerpt]),
+    ...(request.previousScenes ?? []).map(scene => scene.summary),
   ]);
   return request;
 }
@@ -85,7 +85,6 @@ export function validateDraft(input: unknown): PromptDraft {
   }
   checkTextLength([
     draft.scene.summary,
-    draft.scene.sourceExcerpt,
     draft.prompts.positivePrompt,
     draft.prompts.negativePrompt,
     ...draft.prompts.characterPrompts.flatMap(character => [character.positivePrompt, character.negativePrompt]),

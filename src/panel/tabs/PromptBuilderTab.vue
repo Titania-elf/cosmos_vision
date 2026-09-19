@@ -73,6 +73,20 @@
         @import-presets="importPresetPackage"
         @delete-preset="deletePreset"
       />
+
+      <div v-if="!isDefaultPresetActive" class="cv-field mb-(--cv-space-5xl)">
+        <div class="cv-field-control">
+          <label class="cv-field-inline" style="margin-bottom: 0">
+            <ToggleSwitch v-model="appendProvidedContext" />
+            <span>附加原始素材</span>
+          </label>
+          <div class="cv-field-hint">
+            开启后会在预设消息末尾附加一条包含完整正文、人物、历史、本次要求与既往画面的 user
+            消息，无需在预设里手写 <code>{{ theaterTextTokenHint }}</code>
+            等输入宏。若你的预设已自行用这些宏注入素材，请关闭以免重复注入。
+          </div>
+        </div>
+      </div>
     </div>
 
     <PromptLlmMessageList v-model="messages" />
@@ -212,7 +226,10 @@ import {
   downloadActivePromptLlmPresetPackage,
   importPresetPackageFile,
 } from '@/services/data-portability/preset-toolbar';
-import { normalizePromptLlmMessagePresets } from '@/services/prompt-llm/message-preset';
+import {
+  normalizePromptLlmMessagePresets,
+  resolvePresetAppendProvidedContext,
+} from '@/services/prompt-llm/message-preset';
 import { clonePromptLlmMessage } from '@/services/prompt-llm/message-source';
 import { useSettingsStore } from '@/store/settings';
 import manifest from '../../../manifest.json';
@@ -307,6 +324,20 @@ const showConfirm = inject<(options: ConfirmOptions) => Promise<boolean>>('showC
 const isDefaultPresetActive = computed(
   () => settings.promptLlmMessagePresets.activePresetId === DEFAULT_PROMPT_LLM_MESSAGE_PRESET_ID,
 );
+
+// 直接写在模板里的 {{theater_text}} 会被 Vue 当成插值，改用常量转义显示。
+const theaterTextTokenHint = '{{theater_text}}';
+
+const appendProvidedContext = computed<boolean>({
+  get() {
+    const preset = activePreset.value;
+    return preset ? resolvePresetAppendProvidedContext(preset) : true;
+  },
+  set(value) {
+    const preset = activePreset.value;
+    if (preset) preset.appendProvidedContext = value;
+  },
+});
 
 const presetOptions = computed(() => {
   return settings.promptLlmMessagePresets.presets.map(preset => ({

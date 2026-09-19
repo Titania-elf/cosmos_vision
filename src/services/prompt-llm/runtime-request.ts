@@ -40,7 +40,7 @@ export interface PromptLlmGenerateOptions {
   generationId?: string;
   /** 显式触发上下文；缺省时仅 history，模型/来源为空 */
   triggerContext?: PromptLlmTriggerContext;
-  /** 请求监视钩子（仅内联生图路径传入；测试页与人物标签解析不捕获） */
+  /** 请求监视钩子（仅内联生图路径传入；测试页、人物标签解析与公开接口不捕获，公开接口自行记账） */
   inspector?: PromptLlmInspectorHooks;
 }
 

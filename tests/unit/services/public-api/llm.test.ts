@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getProvidedLlmError, requestProvidedPrompt, snapshotProvidedLlmConfig } from '@/services/public-api/llm';
+import { describeProvidedLlm, getProvidedLlmError, requestProvidedPrompt, snapshotProvidedLlmConfig } from '@/services/public-api/llm';
 import { buildTheaterJsonSchema } from '@/services/public-api/prompt';
 import * as connectionSettings from '@/services/sillytavern/openai-config';
 import { createMockFetch } from '../../../helpers/fetch-mocks';
@@ -152,5 +152,20 @@ describe('isolated prompt LLM transport', () => {
       ),
     ).rejects.toMatchObject({ code: 'ABORTED' });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('describes the request for the inspector without leaking credentials', () => {
+    const settings = makeSettings();
+    const display = describeProvidedLlm(settings.promptLlm);
+    expect(display).toEqual({
+      accountName: expect.any(String),
+      endpoint: 'https://llm.example.test/v1',
+      model: 'test-llm',
+    });
+    expect(JSON.stringify(display)).not.toContain('secret-llm-token');
+    settings.promptLlm.accounts = [];
+    expect(() => describeProvidedLlm(settings.promptLlm)).toThrow(
+      expect.objectContaining({ code: 'LLM_NOT_CONFIGURED' }),
+    );
   });
 });

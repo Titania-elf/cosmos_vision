@@ -262,6 +262,8 @@ const promptLlmMessageSchema = z.object({
 const promptLlmMessagePresetSchema = z.object({
   id: z.string().min(1),
   name: z.string().default(DEFAULT_PRESET_NAME),
+  // 缺省交给 normalizePromptLlmMessagePresets 决定（内置默认预设关，其余开）
+  appendProvidedContext: z.boolean().optional(),
   messages: z.array(promptLlmMessageSchema),
 });
 

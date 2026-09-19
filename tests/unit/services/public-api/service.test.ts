@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
 import { createCosmosVisionPublicApi } from '@/services/public-api/service';
+import { PublicApiError } from '@/services/public-api/errors';
 import { requestProvidedPrompt } from '@/services/public-api/llm';
 import { generateNovelAIImagesFromResolvedRequest, buildPayload } from '@/services/novelai/api';
 import { generateComfyUIImagesFromResolvedRequest } from '@/services/comfyui/api';
 import { getComfyUIModelId } from '@/services/public-api/providers';
 import { MAX_TEXT_CHARS } from '@/services/public-api/validation';
+import { useLlmInspectorStore } from '@/store/llm-inspector';
 import type { GenerateRequest, PreparePromptRequest } from '@/services/public-api/types';
 import type { NovelAIImagesResult } from '@/services/novelai/types';
-import { deferred, EXCERPT, LLM_RESULT, makeDraft, makeRequest, makeSettings, pngBlob } from './fixtures';
+import { deferred, LLM_RESULT, makeDraft, makeRequest, makeSettings, pngBlob, THEATER_TEXT } from './fixtures';
 
 vi.mock('@/services/public-api/llm', async importOriginal => ({
   ...(await importOriginal<typeof import('@/services/public-api/llm')>()),
@@ -113,23 +116,25 @@ describe('CosmosVision public API', () => {
     const request = makeRequest();
     request.context.participants = '林的黑发；叶穿红外套。{{char}} 是正文里的字面文本。';
     request.context.history = ['仅调用方历史'];
-    request.previousScenes = [{ summary: '山顶日出', sourceExcerpt: '清晨，林站在山顶看日出。' }];
+    request.previousScenes = [{ summary: '山顶日出' }];
     request.specialRequest = '远景，冷色';
     const api = createCosmosVisionPublicApi(() => settings);
     const progress = vi.fn();
     const draft = await api.preparePrompt(request, { requestId: 'prepare-a', onProgress: progress });
-    expect(draft.scene.sourceExcerpt).toBe(EXCERPT);
+    expect(draft.scene.summary).toBe(LLM_RESULT.scene.summary);
     expect(draft.prompts.characterPrompts).toEqual(LLM_RESULT.characterPrompts);
     expect(draft.prompts.positivePrompt).toContain('artist:test');
     expect(JSON.parse(JSON.stringify(draft))).toEqual(draft);
-    const payload = JSON.parse(llm.mock.calls[0]![1].at(-1)!.content);
-    expect(payload).toEqual({
-      theater_text: request.theaterText,
-      participants: request.context.participants,
-      history: request.context.history,
-      special_request: request.specialRequest,
-      previous_scenes: request.previousScenes,
-    });
+    // 内置默认预设自带宏注入素材，不再附加末尾兜底 user 消息；素材应经各宏条目送达。
+    const sentMessages = llm.mock.calls[0]![1];
+    expect(sentMessages.at(-1)!.role).not.toBe('user');
+    const joined = sentMessages.map(message => message.content).join('\n');
+    expect(joined).toContain(request.theaterText);
+    expect(joined).toContain(request.context.participants);
+    expect(joined).toContain(request.specialRequest);
+    expect(joined).toContain(JSON.stringify(request.previousScenes));
+    // 兜底 user JSON 不应出现，正文不被重复注入。
+    expect(sentMessages.some(message => message.content.includes('"theater_text"'))).toBe(false);
     expect(progress.mock.calls.map(([event]) => [event.requestId, event.stage])).toEqual([
       ['prepare-a', 'queued'],
       ['prepare-a', 'analyzing'],
@@ -235,10 +240,7 @@ describe('CosmosVision public API', () => {
   it.each([
     ['NO_SCENE', JSON.stringify({ scene: null, positivePrompt: '', negativePrompt: '', characterPrompts: [] })],
     ['INVALID_RESPONSE', 'not json'],
-    [
-      'INVALID_RESPONSE',
-      JSON.stringify({ ...LLM_RESULT, scene: { summary: '虚构', sourceExcerpt: '正文没有的引文' } }),
-    ],
+    ['INVALID_RESPONSE', JSON.stringify({ ...LLM_RESULT, scene: { summary: '  ' } })],
     ['INVALID_RESPONSE', JSON.stringify({ ...LLM_RESULT, positivePrompt: ' ' })],
     ['INVALID_RESPONSE', JSON.stringify({ ...LLM_RESULT, characterPrompts: null })],
   ])('validates LLM output (%s) before any image request', async (code, output) => {
@@ -475,5 +477,33 @@ describe('CosmosVision public API', () => {
     });
     expect(comfyui).not.toHaveBeenCalled();
     expect(llm).not.toHaveBeenCalled();
+  });
+
+  it('records the theater request in the LLM inspector without credentials', async () => {
+    setActivePinia(createPinia());
+    const api = createCosmosVisionPublicApi(() => makeSettings());
+    await api.preparePrompt(makeRequest(), { requestId: 'inspector-ok' });
+    const session = useLlmInspectorStore().sessions.find(item => item.id === 'inspector-ok')!;
+    expect(session.status).toBe('completed');
+    expect(session.label).toContain('小剧场选景：');
+    expect(session.model).toBe('test-llm');
+    expect(session.endpoint).toBe('https://llm.example.test/v1');
+    expect(session.streamEnabled).toBe(false);
+    // 监视里能看到实际发送的指令与模型返回，但不含任何凭据。
+    expect(session.prompts.map(prompt => prompt.content).join('\n')).toContain(THEATER_TEXT);
+    expect(session.contentText).toContain('rainy station');
+    expect(JSON.stringify(session)).not.toContain('secret-llm-token');
+  });
+
+  it('marks the inspector session failed when the provided request fails', async () => {
+    setActivePinia(createPinia());
+    llm.mockRejectedValue(new PublicApiError('GENERATION_FAILED', '提示词服务请求失败（HTTP 500）。'));
+    const api = createCosmosVisionPublicApi(() => makeSettings());
+    await expect(api.preparePrompt(makeRequest(), { requestId: 'inspector-fail' })).rejects.toMatchObject({
+      code: 'GENERATION_FAILED',
+    });
+    const session = useLlmInspectorStore().sessions.find(item => item.id === 'inspector-fail')!;
+    expect(session.status).toBe('failed');
+    expect(session.error).toContain('HTTP 500');
   });
 });

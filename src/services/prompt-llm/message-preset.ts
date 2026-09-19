@@ -1,4 +1,8 @@
-import { DEFAULT_PROMPT_LLM_PRESET_ID, DEFAULT_PROMPT_LLM_SPECIAL_REQUEST_MESSAGE_ID } from '@/constants/default-prompt-llm-preset';
+import {
+  DEFAULT_PROMPT_LLM_PRESET_ID,
+  DEFAULT_PROMPT_LLM_PREVIOUS_SCENES_MESSAGE_ID,
+  DEFAULT_PROMPT_LLM_SPECIAL_REQUEST_MESSAGE_ID,
+} from '@/constants/default-prompt-llm-preset';
 import {
   DEFAULT_PROMPT_LLM_MESSAGE_ENABLED,
   PROMPT_LLM_FOCUS_PARAGRAPH_TOKEN,
@@ -41,6 +45,19 @@ const LEGACY_RUNTIME_MESSAGE_CONFIGS = [
 ] as const satisfies readonly LegacyRuntimeMessageConfig[];
 
 const PROMPT_LLM_CONTENT_TOKEN_PATTERN = /\{\{(?:history|participants|focus_paragraph|special_request|theater_text|previous_scenes)\}\}/g;
+
+/**
+ * 解析预设是否需要附加原始素材兜底 user 消息
+ * 显式设置优先；未设置时内置默认预设关（自带宏），其余预设开（省去手写宏）。
+ * @param preset 消息预设
+ * @returns 是否附加原始素材兜底消息
+ */
+export function resolvePresetAppendProvidedContext(
+  preset: Pick<PromptLlmMessagePreset, 'id' | 'appendProvidedContext'>,
+): boolean {
+  if (typeof preset.appendProvidedContext === 'boolean') return preset.appendProvidedContext;
+  return preset.id !== DEFAULT_PROMPT_LLM_PRESET_ID;
+}
 
 /**
  * 读取当前激活的提示词预设
@@ -122,7 +139,14 @@ function readPromptLlmSourceText(sourceMessage: Awaited<ReturnType<typeof resolv
  */
 function normalizePromptLlmPreset(preset: PromptLlmMessagePreset): PromptLlmMessagePreset {
   const messages = preset.messages.map(normalizePromptLlmMessage);
-  return { ...preset, messages: ensureDefaultSpecialRequestMessage(preset.id, messages) };
+  const withDefaults = ensureDefaultPreviousScenesMessage(
+    preset.id,
+    ensureDefaultSpecialRequestMessage(preset.id, messages),
+  );
+  // 内置默认预设固定关闭原始素材兜底（自带宏，避免重复注入）；旧设置里残留的显式值一并归位。
+  const appendProvidedContext =
+    preset.id === DEFAULT_PROMPT_LLM_PRESET_ID ? false : preset.appendProvidedContext;
+  return { ...preset, appendProvidedContext, messages: withDefaults };
 }
 
 /**
@@ -135,6 +159,19 @@ function ensureDefaultSpecialRequestMessage(presetId: string, messages: PromptLl
   if (presetId !== DEFAULT_PROMPT_LLM_PRESET_ID) return messages;
   if (messages.some(message => message.id === DEFAULT_PROMPT_LLM_SPECIAL_REQUEST_MESSAGE_ID)) return messages;
   return [...messages, createSpecialRequestMessage()];
+}
+
+/**
+ * 为默认内置预设补齐既往画面消息
+ * 关闭原始素材兜底后，靠该条目通过 {{previous_scenes}} 宏保留避免重复选景的参考。
+ * @param presetId 预设 ID
+ * @param messages 当前消息列表
+ * @returns 补齐后的消息列表
+ */
+function ensureDefaultPreviousScenesMessage(presetId: string, messages: PromptLlmMessage[]): PromptLlmMessage[] {
+  if (presetId !== DEFAULT_PROMPT_LLM_PRESET_ID) return messages;
+  if (messages.some(message => message.id === DEFAULT_PROMPT_LLM_PREVIOUS_SCENES_MESSAGE_ID)) return messages;
+  return [...messages, createPreviousScenesMessage()];
 }
 
 /**
@@ -167,6 +204,26 @@ function createSpecialRequestMessage(): PromptLlmMessage {
     title: '本次临时追加要求',
     role: 'user',
     content: ['', '<special_request>', `    ${PROMPT_LLM_SPECIAL_REQUEST_TOKEN}`, '</special_request>', ''].join('\n'),
+    enabled: DEFAULT_PROMPT_LLM_MESSAGE_ENABLED,
+  });
+}
+
+/**
+ * 创建默认预设中的既往画面消息
+ * @returns 既往画面消息条目
+ */
+function createPreviousScenesMessage(): PromptLlmMessage {
+  return withPromptLlmMessageTriggerDefaults({
+    id: DEFAULT_PROMPT_LLM_PREVIOUS_SCENES_MESSAGE_ID,
+    title: '既往画面',
+    role: 'system',
+    content: [
+      '<previous_scenes>',
+      '    以下是本篇正文此前已经选过的画面（JSON 数组，可能为空 []）。请避免重复选择同一画面，尽量选取新的时空或视角：',
+      PROMPT_LLM_PREVIOUS_SCENES_TOKEN,
+      '</previous_scenes>',
+      '',
+    ].join('\n'),
     enabled: DEFAULT_PROMPT_LLM_MESSAGE_ENABLED,
   });
 }

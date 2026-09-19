@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildTheaterJsonSchema, buildTheaterMessages, extractTheaterResult } from '@/services/public-api/prompt';
 import { normalizePromptLlmMessagePresets } from '@/services/prompt-llm/message-preset';
 import { DEFAULT_PROMPT_LLM_PRESET_ID } from '@/constants/default-prompt-llm-preset';
-import { EXCERPT, LLM_RESULT, makeRequest, makeSettings, THEATER_TEXT } from './fixtures';
+import { LLM_RESULT, makeRequest, makeSettings, THEATER_TEXT } from './fixtures';
 
 const RETIRED_THEATER_PRESET_ID = 'prompt-llm-theater-preset';
 
@@ -109,24 +109,60 @@ describe('theater prompt and supplied-only context', () => {
     ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
   });
 
-  it('filters provider-specific rules and includes empty participants and history explicitly', async () => {
+  it('filters provider-specific rules and injects theater text via macros without the fallback user message', async () => {
     const settings = makeSettings();
-    const messages = await buildTheaterMessages(
-      settings,
-      { ...makeRequest(), imageSource: 'comfyui' },
-      'workflow-model',
-    );
+    const request = { ...makeRequest(), imageSource: 'comfyui' as const };
+    request.previousScenes = [{ summary: '山顶日出' }];
+    const messages = await buildTheaterMessages(settings, request, 'workflow-model');
     const joined = messages.map(message => message.content).join('\n');
     expect(joined).not.toContain('<nai_prompt_rules>');
     expect(joined).toContain('<comfyui_prompt_rules>');
     // 内置预设的焦点段落槽位收到的就是整篇正文，选景要求由末尾输出规则补充。
     expect(joined).toContain(`<main_scene>\n    ${THEATER_TEXT}\n</main_scene>`);
     expect(joined).toContain('theater_text 是尚未选景的完整作品');
-    expect(JSON.parse(messages.at(-1)!.content)).toMatchObject({
-      participants: '',
-      history: [],
-      theater_text: THEATER_TEXT,
+    // 既往画面经 {{previous_scenes}} 宏条目注入，避免重复选景的参考不丢。
+    expect(joined).toContain(JSON.stringify(request.previousScenes));
+    // 内置默认预设关闭原始素材兜底：不再附加末尾 user JSON，正文不被重复注入。
+    expect(messages.at(-1)!.role).not.toBe('user');
+    expect(messages.some(message => message.content.includes('"theater_text"'))).toBe(false);
+  });
+
+  it('appends the raw-context fallback user message for a custom preset lacking input macros', async () => {
+    const settings = makeSettings();
+    const request = makeRequest();
+    request.previousScenes = [{ summary: '山顶日出' }];
+    request.presetId = 'custom-theater';
+    settings.promptLlmMessagePresets.presets.push({
+      id: request.presetId,
+      name: '自定义小剧场',
+      // 未显式设置 appendProvidedContext：非默认预设默认开启兜底。
+      messages: [{ id: 'custom', title: '测试', role: 'system', enabled: true, content: '自定义画风' }],
     });
+    const messages = await buildTheaterMessages(settings, request, settings.novelai.model);
+    const last = messages.at(-1)!;
+    expect(last.role).toBe('user');
+    expect(JSON.parse(last.content)).toEqual({
+      theater_text: THEATER_TEXT,
+      participants: request.context.participants,
+      history: request.context.history,
+      special_request: request.specialRequest,
+      previous_scenes: request.previousScenes,
+    });
+  });
+
+  it('omits the fallback user message when a custom preset opts out explicitly', async () => {
+    const settings = makeSettings();
+    const request = { ...makeRequest(), presetId: 'macro-theater' };
+    settings.promptLlmMessagePresets.presets.push({
+      id: request.presetId,
+      name: '含宏自定义预设',
+      appendProvidedContext: false,
+      messages: [{ id: 'custom', title: '测试', role: 'system', enabled: true, content: '画风 {{theater_text}}' }],
+    });
+    const messages = await buildTheaterMessages(settings, request, settings.novelai.model);
+    expect(messages[0]!.content).toContain(THEATER_TEXT);
+    expect(messages.at(-1)!.role).not.toBe('user');
+    expect(messages.some(message => message.content.includes('"theater_text"'))).toBe(false);
   });
 
   it('retains scene schema and character fields and parses fenced/tagged output', () => {
@@ -135,10 +171,7 @@ describe('theater prompt and supplied-only context', () => {
       expect.arrayContaining(['scene', 'positivePrompt', 'negativePrompt', 'characterPrompts']),
     );
     expect((schema.value.properties as Record<string, unknown>).scene).toBeDefined();
-    const result = extractTheaterResult(
-      `<output>\n\`\`\`json\n${JSON.stringify(LLM_RESULT)}\n\`\`\`\n</output>`,
-      THEATER_TEXT,
-    );
+    const result = extractTheaterResult(`<output>\n\`\`\`json\n${JSON.stringify(LLM_RESULT)}\n\`\`\`\n</output>`);
     expect(result).toEqual({
       scene: LLM_RESULT.scene,
       prompts: {
@@ -149,25 +182,20 @@ describe('theater prompt and supplied-only context', () => {
     });
   });
 
-  it('requires an exact contiguous quote, including punctuation, and rejects multiple outputs', () => {
-    const altered = {
+  it('accepts a summary without requiring a verbatim excerpt, but rejects empty positive and multiple outputs', () => {
+    // 正文原文含半角引号时，逐字摘录会破坏 JSON；现在只要求模型给出概括 summary，不再逐字校验。
+    const quoted = {
       ...LLM_RESULT,
-      scene: { summary: '两个时空的拼接', sourceExcerpt: '清晨，林站在山顶看日出。夜晚，林和叶在雨中的车站重逢。' },
+      scene: { summary: '角色说“行，是我活该”，两人相拥。' },
     };
-    expect(() => extractTheaterResult(JSON.stringify(altered), THEATER_TEXT)).toThrow(
-      expect.objectContaining({ code: 'INVALID_RESPONSE' }),
-    );
+    expect(extractTheaterResult(JSON.stringify(quoted)).scene).toEqual(quoted.scene);
+    // 正向提示词为空仍拒绝。
     expect(() =>
-      extractTheaterResult(
-        JSON.stringify({ ...LLM_RESULT, scene: { summary: '夜雨', sourceExcerpt: EXCERPT.replace('。', '!') } }),
-        THEATER_TEXT,
-      ),
+      extractTheaterResult(JSON.stringify({ ...LLM_RESULT, positivePrompt: '   ' })),
     ).toThrow(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+    // 多个 <output> 仍拒绝。
     expect(() =>
-      extractTheaterResult(
-        `<output>${JSON.stringify(LLM_RESULT)}</output><output>${JSON.stringify(LLM_RESULT)}</output>`,
-        THEATER_TEXT,
-      ),
+      extractTheaterResult(`<output>${JSON.stringify(LLM_RESULT)}</output><output>${JSON.stringify(LLM_RESULT)}</output>`),
     ).toThrow(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
   });
 });

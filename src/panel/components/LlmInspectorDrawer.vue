@@ -58,7 +58,7 @@
             <div v-if="!sessions.length && !railCollapsed" class="cv-llm-inspector-empty">
               <i class="fa-regular fa-comment-dots" aria-hidden="true" />
               <span>暂无请求记录</span>
-              <span class="cv-llm-inspector-empty-hint">选段生图后，将在此实时查看 LLM 交互</span>
+              <span class="cv-llm-inspector-empty-hint">选段生图或小剧场分析画面后，将在此实时查看 LLM 交互</span>
             </div>
             <button
               v-for="session in sessions"

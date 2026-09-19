@@ -28,7 +28,8 @@ export interface LlmInspectorSession extends LlmInspectorRequestSnapshot {
 
 /**
  * LLM 请求监视 Store
- * 发送侧由 useInlineImageGeneration 通过钩子写入（仅内联生图）；
+ * 发送侧由 useInlineImageGeneration 通过钩子写入（内联生图），公开接口（小剧场）
+ * 另经 services/public-api/inspector 记账；
  * 响应侧订阅 TavernHelper 在 ST eventSource 上广播的流式事件，
  * 按 generation_id 过滤自家请求。内存态，不落盘。
  */

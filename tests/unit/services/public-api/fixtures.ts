@@ -3,9 +3,8 @@ import type { CosmosVisionSettings } from '@/constants/novelai';
 import type { PreparePromptRequest, PromptDraft } from '@/services/public-api/types';
 
 export const THEATER_TEXT = '清晨，林站在山顶看日出。\n夜晚，林和叶在雨中的车站重逢。';
-export const EXCERPT = '夜晚，林和叶在雨中的车站重逢。';
 export const LLM_RESULT = {
-  scene: { summary: '两人在雨中的车站重逢。', sourceExcerpt: EXCERPT },
+  scene: { summary: '两人在雨中的车站重逢。' },
   positivePrompt: '2people, rainy station, reunion',
   negativePrompt: 'blurry',
   characterPrompts: [{ positivePrompt: 'black hair, coat', negativePrompt: '', position: { x: 0, y: 1 } }],

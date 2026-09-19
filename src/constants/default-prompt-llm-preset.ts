@@ -8,6 +8,7 @@ import {
   PROMPT_LLM_FOCUS_PARAGRAPH_TOKEN,
   PROMPT_LLM_HISTORY_TOKEN,
   PROMPT_LLM_PARTICIPANT_TOKEN,
+  PROMPT_LLM_PREVIOUS_SCENES_TOKEN,
   PROMPT_LLM_SPECIAL_REQUEST_TOKEN,
 } from '@/constants/prompt-llm-tokens';
 
@@ -23,6 +24,7 @@ export const DEFAULT_PROMPT_LLM_HISTORY_MESSAGE_ID = 'prompt-llm-history-message
 export const DEFAULT_PROMPT_LLM_CONTENT_CLOSE_MESSAGE_ID = 'prompt-llm-content-close';
 export const DEFAULT_PROMPT_LLM_FOCUS_SCENE_MESSAGE_ID = 'prompt-llm-focus-scene';
 export const DEFAULT_PROMPT_LLM_SPECIAL_REQUEST_MESSAGE_ID = 'prompt-llm-special-request';
+export const DEFAULT_PROMPT_LLM_PREVIOUS_SCENES_MESSAGE_ID = 'prompt-llm-previous-scenes';
 export const DEFAULT_PROMPT_LLM_NAI_RULES_V3_MESSAGE_ID = 'prompt-llm-nai-rules-v3';
 export const DEFAULT_PROMPT_LLM_NAI_RULES_V4_MESSAGE_ID = 'prompt-llm-nai-rules-v4';
 export const DEFAULT_PROMPT_LLM_COMFYUI_RULES_MESSAGE_ID = 'prompt-llm-comfyui-rules';
@@ -38,6 +40,8 @@ export default {
     {
       id: DEFAULT_PROMPT_LLM_PRESET_ID,
       name: '默认预设',
+      // 默认预设已用 {{focus_paragraph}}/{{participants}} 等宏自行注入全部素材，无需附加兜底 user 消息。
+      appendProvidedContext: false,
       messages: [
         {
           id: DEFAULT_PROMPT_LLM_START_MESSAGE_ID,
@@ -642,6 +646,21 @@ ${PROMPT_LLM_HISTORY_TOKEN}
     以下用户要求你必须优先把它体现在最终输出的 tag 中，若为空则忽略：
 ${PROMPT_LLM_SPECIAL_REQUEST_TOKEN}
 </special_request>
+`,
+          enabled: true,
+          triggerMatchMode: 'always',
+          triggerKeywordGroups: [],
+          triggerModels: [],
+          triggerImageSources: [],
+        },
+        {
+          id: DEFAULT_PROMPT_LLM_PREVIOUS_SCENES_MESSAGE_ID,
+          title: '既往画面',
+          role: 'system',
+          content: `<previous_scenes>
+    以下是本篇正文此前已经选过的画面（JSON 数组，可能为空 []）。请避免重复选择同一画面，尽量选取新的时空或视角：
+${PROMPT_LLM_PREVIOUS_SCENES_TOKEN}
+</previous_scenes>
 `,
           enabled: true,
           triggerMatchMode: 'always',
