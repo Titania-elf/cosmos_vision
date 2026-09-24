@@ -24,12 +24,34 @@ import {
 } from '@/services/inline-image/cv-render-container';
 import { getCurrentInlineFavoriteScope } from '@/services/sillytavern/chat-context';
 import { ensureSlotShortcodeOnParagraph, resolveParagraphSlotId } from '@/services/inline-image/slot-bind';
-import { newSlotId } from '@/services/inline-image/slot-shortcode';
+import { newSlotId, parseSlotIds, removeSlotShortcode } from '@/services/inline-image/slot-shortcode';
+import { readChatMessageRaw, writeChatMessageRaw } from '@/services/inline-image/message-raw';
+import {
+  isSlotBindingCleanupEmpty,
+  planSlotBindingCleanup,
+  summarizeSlotBindingCleanup,
+  type OrphanShortcodeRef,
+  type SlotBindingCleanupSummary,
+} from '@/services/inline-image/orphan-slots';
+import { listInlineImageFavoriteMeta, type InlineImageFavoriteScope } from '@/services/inline-image/favorites-cache';
 import type { InlineFavoriteAnchor } from '@/services/sillytavern/chat-dom';
-import { event_types, eventSource } from '@sillytavern/script';
+import { chat, event_types, eventSource } from '@sillytavern/script';
 import { useSettingsStore } from '@/store/settings';
-import { deleteTemporaryImage, pruneTemporaryImages } from '@/services/inline-image/temporary-images';
+import { deleteTemporaryImage, listTemporaryImages, pruneTemporaryImages } from '@/services/inline-image/temporary-images';
 import { pruneFloorTailSlotsAboveMesId } from '@/services/inline-image/floor-tail-slot';
+
+/** 失效绑定码清理确认回调：返回 true 才落地清理 */
+export type SlotBindingCleanupConfirm = (
+  summary: SlotBindingCleanupSummary,
+) => boolean | Promise<boolean>;
+
+/** 失效绑定码清理结果 */
+export interface SlotBindingCleanupResult extends SlotBindingCleanupSummary {
+  /** 是否真正落地清理 */
+  applied: boolean;
+  /** 未落地原因 */
+  reason: 'applied' | 'cancelled' | 'nothing' | 'no-scope';
+}
 
 /** 渲染器回调（命令式 DOM 渲染器注册；避免 store↔渲染器循环依赖） */
 let notifySlotChange: ((slotId: string) => void) | null = null;
@@ -633,6 +655,66 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
     runtime.reload_memo = createReloadMemo();
   }
 
+  /**
+   * 一键清除当前聊天的失效绑定码：失效位点短码 + 反向孤儿临时图
+   *
+   * 挂到与 audit/floor 相同的串行链上执行，确认弹窗期间也占住链，
+   * 保证「扫描 → 确认 → 落地」之间不被其它任务插入而读到过期计划。
+   * @param confirm 计数确认回调，返回 true 才落地清理
+   * @returns 清理结果
+   */
+  function cleanupOrphanSlotBindings(confirm: SlotBindingCleanupConfirm): Promise<SlotBindingCleanupResult> {
+    const job = () => runOrphanSlotBindingCleanup(confirm);
+    const run = chain.then(job, job);
+    chain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  /**
+   * 扫描 → 确认 → 落地失效绑定码清理
+   * @param confirm 计数确认回调
+   * @returns 清理结果
+   */
+  async function runOrphanSlotBindingCleanup(
+    confirm: SlotBindingCleanupConfirm,
+  ): Promise<SlotBindingCleanupResult> {
+    const scope = getCurrentInlineFavoriteScope();
+    if (!scope) {
+      return { applied: false, reason: 'no-scope', orphanShortcodeCount: 0, affectedMessageCount: 0, orphanTemporaryImageCount: 0 };
+    }
+    const { activeReferences, referencedSlotIds } = scanChatSlotReferences();
+    const temporaryImages = (await listTemporaryImages(scope)).map(record => ({ id: record.id, slotId: record.slotId }));
+    const favoriteSlotIds = await listScopedFavoriteSlotIds(scope);
+    const plan = planSlotBindingCleanup({
+      activeReferences,
+      referencedSlotIds,
+      temporaryImages,
+      favoriteSlotIds,
+      liveSlotIds: collectLiveSlotIds(),
+    });
+    const summary = summarizeSlotBindingCleanup(plan);
+    if (isSlotBindingCleanupEmpty(summary)) return { applied: false, reason: 'nothing', ...summary };
+    if (!(await confirm(summary))) return { applied: false, reason: 'cancelled', ...summary };
+    await applyOrphanShortcodeRemovals(plan.orphanShortcodes);
+    for (const id of plan.orphanTemporaryImageIds) await deleteTemporaryImage(id);
+    if (!disposed) await rerenderAll();
+    return { applied: true, reason: 'applied', ...summary };
+  }
+
+  /**
+   * 汇总当前 runtime 与楼层尾锚点占用的 slotId（生成中/已挂载，双向保护）
+   * @returns live slotId 集合
+   */
+  function collectLiveSlotIds(): Set<string> {
+    const live = new Set<string>();
+    runtimes.value.forEach(runtime => runtime.mounts.forEach(mount => live.add(mount.mountKey.slotId)));
+    floorTailAnchors.forEach((_anchor, slotId) => live.add(slotId));
+    return live;
+  }
+
   return {
     runtimes,
     themeToken,
@@ -650,6 +732,7 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
     showGeneratedFloorTail,
     getHost,
     removeMount,
+    cleanupOrphanSlotBindings,
   };
 });
 
@@ -749,6 +832,81 @@ function normalizeMessageId(messageId: unknown): number | null {
  */
 function createReloadMemo(): string {
   return uuidv4();
+}
+
+/**
+ * 扫描当前聊天全部楼层的位点短码引用
+ *
+ * - activeReferences：活动 swipe 正文里的短码，是正向清除的目标
+ * - referencedSlotIds：含非活动 swipe 在内的全部引用，用于反向孤儿保护
+ * @returns 活动引用与全量引用集合
+ */
+function scanChatSlotReferences(): { activeReferences: OrphanShortcodeRef[]; referencedSlotIds: Set<string> } {
+  const activeReferences: OrphanShortcodeRef[] = [];
+  const referencedSlotIds = new Set<string>();
+  const messages = Array.isArray(chat) ? (chat as unknown[]) : [];
+  messages.forEach((entry, messageId) => {
+    for (const slotId of parseSlotIds(readMessageActiveText(entry))) {
+      activeReferences.push({ slotId, messageId });
+      referencedSlotIds.add(slotId);
+    }
+    for (const swipe of readMessageSwipeTexts(entry)) {
+      for (const slotId of parseSlotIds(swipe)) referencedSlotIds.add(slotId);
+    }
+  });
+  return { activeReferences, referencedSlotIds };
+}
+
+/**
+ * 读取聊天条目的活动正文
+ * @param entry chat 数组条目
+ * @returns 活动 swipe 正文
+ */
+function readMessageActiveText(entry: unknown): string {
+  const mes = (entry as { mes?: unknown } | null)?.mes;
+  return typeof mes === 'string' ? mes : '';
+}
+
+/**
+ * 读取聊天条目的全部 swipe 正文
+ * @param entry chat 数组条目
+ * @returns swipe 正文列表
+ */
+function readMessageSwipeTexts(entry: unknown): string[] {
+  const swipes = (entry as { swipes?: unknown } | null)?.swipes;
+  return Array.isArray(swipes) ? swipes.filter((swipe): swipe is string => typeof swipe === 'string') : [];
+}
+
+/**
+ * 分楼定点剥离失效短码（同楼多枚合并为一次写回，refresh:'none' 避免丢临时画廊）
+ * @param refs 待清除的失效短码引用
+ */
+async function applyOrphanShortcodeRemovals(refs: OrphanShortcodeRef[]): Promise<void> {
+  const slotIdsByMessage = new Map<number, string[]>();
+  for (const ref of refs) {
+    slotIdsByMessage.set(ref.messageId, [...(slotIdsByMessage.get(ref.messageId) ?? []), ref.slotId]);
+  }
+  for (const [messageId, slotIds] of slotIdsByMessage) {
+    const raw = readChatMessageRaw(messageId);
+    if (raw === null) continue;
+    let next = raw;
+    for (const slotId of slotIds) next = removeSlotShortcode(next, slotId);
+    if (next !== raw) await writeChatMessageRaw(messageId, next, 'none');
+  }
+}
+
+/**
+ * 读取指定作用域存有收藏的 slotId 集合（仅元数据，不下载图片）
+ * @param scope 当前收藏作用域
+ * @returns 收藏 slotId 集合
+ */
+async function listScopedFavoriteSlotIds(scope: InlineImageFavoriteScope): Promise<Set<string>> {
+  const metas = await listInlineImageFavoriteMeta();
+  const slotIds = new Set<string>();
+  for (const meta of metas) {
+    if (meta.characterKey === scope.characterKey && meta.chatId === scope.chatId) slotIds.add(meta.slotId);
+  }
+  return slotIds;
 }
 
 /**

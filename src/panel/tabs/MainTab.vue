@@ -71,6 +71,23 @@
 
     <!-- 数据子 tab -->
     <template v-else-if="subTab === 'data'">
+      <h2 class="cv-section-title">失效数据清理</h2>
+      <div class="cv-section-body">
+        <div class="cv-field-inline">
+          <span>清除失效绑定码</span>
+          <Button
+            label="清除"
+            severity="secondary"
+            size="small"
+            :loading="isCleanupBusy"
+            @click="cleanupOrphanBindings"
+          />
+        </div>
+        <div class="cv-field-hint">
+          扫描当前聊天，移除指向已删图片的失效位点短码，并清理无任何楼层引用的残留临时图。此操作会改写聊天正文，无法撤销。
+        </div>
+      </div>
+
       <NovelAIVibeDataPanel
         :items="vibeRows"
         :loading="isVibeRowsLoading"
@@ -141,7 +158,8 @@ import {
 } from '@/services/novelai/vibe-cache';
 import { downloadAllNovelAIVibes, downloadNovelAIVibe } from '@/services/novelai/vibe-download';
 import type { NovelAIVibeCacheListItem } from '@/services/novelai/vibe-types';
-import { useGalleryRuntimesStore } from '@/store/gallery-runtimes';
+import { useGalleryRuntimesStore, type SlotBindingCleanupResult } from '@/store/gallery-runtimes';
+import type { SlotBindingCleanupSummary } from '@/services/inline-image/orphan-slots';
 import { useSettingsStore } from '@/store/settings';
 import { updateDetected } from '@/services/version-check/st-update';
 import manifest from '../../../manifest.json';
@@ -178,6 +196,7 @@ const favoriteMetas = ref<InlineImageFavoriteMeta[]>([]);
 const temporaryMetas = ref<TemporaryImageMeta[]>([]);
 const isManagedImagesLoading = ref(false);
 const isManagedImagesBusy = ref(false);
+const isCleanupBusy = ref(false);
 let managedRefreshGeneration = 0;
 let managedLocalVersion = 0;
 const managedImageItems = computed(() =>
@@ -484,6 +503,57 @@ function toStreamDownloadItems(items: ManagedImageItem[]): DownloadableImageStre
     characterKey: item.characterKey,
     chatId: item.chatId,
   }));
+}
+
+/**
+ * 一键清除当前聊天的失效绑定码（失效位点短码 + 反向孤儿临时图）
+ */
+async function cleanupOrphanBindings(): Promise<void> {
+  if (isCleanupBusy.value) return;
+  isCleanupBusy.value = true;
+  try {
+    const result = await useGalleryRuntimesStore().cleanupOrphanSlotBindings(summary =>
+      confirmDangerAction('清除失效绑定码', buildOrphanCleanupMessage(summary), '清除'),
+    );
+    reportOrphanCleanupResult(result);
+    if (result.applied && result.orphanTemporaryImageCount) void refreshManagedImages();
+  } catch (error) {
+    toastr.error('清除失效绑定码失败');
+    console.error('清除失效绑定码失败', error);
+  } finally {
+    isCleanupBusy.value = false;
+  }
+}
+
+/**
+ * 构建失效绑定码清理的确认文案
+ * @param summary 计数摘要
+ * @returns 确认文案
+ */
+function buildOrphanCleanupMessage(summary: SlotBindingCleanupSummary): string {
+  const parts: string[] = [];
+  if (summary.orphanShortcodeCount) {
+    parts.push(`${summary.orphanShortcodeCount} 枚失效绑定码（分布在 ${summary.affectedMessageCount} 楼）`);
+  }
+  if (summary.orphanTemporaryImageCount) parts.push(`${summary.orphanTemporaryImageCount} 张残留临时图`);
+  return `发现 ${parts.join('、')}。清除后对应位点将从聊天正文移除，此操作无法撤销。确定清除？`;
+}
+
+/**
+ * 依据清理结果提示用户
+ * @param result 清理结果
+ */
+function reportOrphanCleanupResult(result: SlotBindingCleanupResult): void {
+  if (result.reason === 'no-scope') {
+    toastr.warning('未找到当前聊天，无法清除失效绑定码');
+    return;
+  }
+  if (result.reason === 'nothing') {
+    toastr.info('未发现失效绑定码');
+    return;
+  }
+  if (result.reason === 'cancelled') return;
+  toastr.success(`已清除 ${result.orphanShortcodeCount} 枚失效绑定码、${result.orphanTemporaryImageCount} 张残留临时图`);
 }
 
 /**
