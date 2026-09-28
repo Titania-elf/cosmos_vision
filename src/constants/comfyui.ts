@@ -179,6 +179,32 @@ export function createComfyUILoraPresetSettings(
   };
 }
 
+/** ComfyUI 分辨率组合（一键写入节点 width/height） */
+export interface ComfyUIResolutionCombo {
+  id: string;
+  /** 组合名称（用户自定义，如「人物立绘」） */
+  name: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * 创建 ComfyUI 分辨率组合
+ * @param id 组合 ID
+ * @param name 组合名称
+ * @param width 宽
+ * @param height 高
+ * @returns 分辨率组合
+ */
+export function createComfyUIResolutionCombo(
+  id: string,
+  name: string,
+  width: number,
+  height: number,
+): ComfyUIResolutionCombo {
+  return { id, name, width, height };
+}
+
 /** ComfyUI 子设置：当前工作流预设为参数唯一来源 */
 /** ComfyUI 默认超时时间 */
 export const COMFYUI_DEFAULT_TIMEOUT = 300;
@@ -189,4 +215,6 @@ export interface ComfyUISettings extends ImagePromptPresetReferences {
   timeout: number;
   workflowPresets: ComfyUIWorkflowPresetSettings;
   loraPresets: ComfyUILoraPresetSettings;
+  /** 分辨率组合（一键写入节点 width/height） */
+  resolutionCombos: ComfyUIResolutionCombo[];
 }
