@@ -144,6 +144,15 @@
           <i class="fa-solid fa-plus" />
           添加 LoRA
         </button>
+
+        <button
+          type="button"
+          class="mb-(--cv-space-lg) flex w-full cursor-pointer items-center justify-center gap-(--cv-space-sm) rounded-(--cv-radius-sm) border-(length:--cv-border-width) border-dashed border-(--cv-surface-variant) bg-[color-mix(in_srgb,var(--cv-surface-container-low)_42%,transparent)] py-(--cv-space-md) text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant) transition-all duration-200 ease-in-out hover:border-(--cv-outline) hover:bg-(--cv-surface-container-low) hover:text-(--cvp-primary-color)"
+          @click="isBulkAddVisible = true"
+        >
+          <i class="fa-solid fa-layer-group" />
+          从库批量添加
+        </button>
       </div>
     </div>
 
@@ -153,6 +162,12 @@
       :lora-options="props.loraOptions"
       @import-file="importPresetFile"
       @import-recipes="importRecipes"
+    />
+    <ComfyUILoraBulkAddDialog
+      v-model:visible="isBulkAddVisible"
+      :options="props.loraOptions"
+      :existing-loras="activePreset?.loras ?? []"
+      @confirm="addLorasBulk"
     />
   </div>
 </template>
@@ -170,6 +185,7 @@ import {
   type ComfyUILoraSetting,
 } from '@/constants/comfyui';
 import ComfyUILoraImportDialog from '@/panel/components/comfyui/ComfyUILoraImportDialog.vue';
+import ComfyUILoraBulkAddDialog from '@/panel/components/comfyui/ComfyUILoraBulkAddDialog.vue';
 import ComfyUILoraOptionThumb from '@/panel/components/comfyui/ComfyUILoraOptionThumb.vue';
 import ComfyUILoraPreviewButton from '@/panel/components/comfyui/ComfyUILoraPreviewButton.vue';
 import CvMiniButton from '@/panel/components/CvMiniButton.vue';
@@ -261,6 +277,13 @@ const editingLoraId = ref<string | null>(null);
 
 /** 控制导入预设弹窗的显示状态 */
 const isImportVisible = ref(false);
+/** 控制从库批量添加弹窗的显示状态 */
+const isBulkAddVisible = ref(false);
+
+// 打开批量添加弹窗时若 LoRA 库尚未拉取则静默拉取一次
+watch(isBulkAddVisible, opened => {
+  if (opened && !syncCacheStore.fetchedComfyUiLoras.length && props.comfyuiUrl.trim()) void ensureLoraOptionsLoaded();
+});
 
 // 打开导入弹窗时若 LoRA 库尚未拉取会导致配方映射失败（显示本地缺失），先静默拉取一次
 // 注意：不能看 loraOptions 是否为空——它并入了当前预设组里的 LoRA 名，库空时也可能非空
@@ -449,6 +472,16 @@ function addLora(): void {
   const newLora = createBlankLora();
   updatePreset(activePreset.value.id, preset => ({ ...preset, loras: [...preset.loras, newLora] }));
   editingLoraId.value = newLora.id;
+}
+
+/**
+ * 从 LoRA 库批量添加选中的 LoRA（添加后默认禁用，逐个启用）
+ * @param names 选中的 LoRA 名称列表
+ */
+function addLorasBulk(names: string[]): void {
+  if (!activePreset.value || !names.length) return;
+  const newLoras = names.map(name => createComfyUILoraSetting(uuidv4(), { name, enabled: false }));
+  updatePreset(activePreset.value.id, preset => ({ ...preset, loras: [...preset.loras, ...newLoras] }));
 }
 
 /**
