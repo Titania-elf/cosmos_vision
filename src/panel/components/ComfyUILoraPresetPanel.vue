@@ -153,6 +153,15 @@
           <i class="fa-solid fa-layer-group" />
           从库批量添加
         </button>
+
+        <button
+          type="button"
+          class="mb-(--cv-space-lg) flex w-full cursor-pointer items-center justify-center gap-(--cv-space-sm) rounded-(--cv-radius-sm) border-(length:--cv-border-width) border-dashed border-(--cv-surface-variant) bg-[color-mix(in_srgb,var(--cv-surface-container-low)_42%,transparent)] py-(--cv-space-md) text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant) transition-all duration-200 ease-in-out hover:border-(--cv-outline) hover:bg-(--cv-surface-container-low) hover:text-(--cvp-primary-color)"
+          @click="isRecipeBrowserVisible = true"
+        >
+          <i class="fa-solid fa-magnifying-glass" />
+          搜索配方导入
+        </button>
       </div>
     </div>
 
@@ -168,6 +177,12 @@
       :options="props.loraOptions"
       :existing-loras="activePreset?.loras ?? []"
       @confirm="addLorasBulk"
+    />
+    <ComfyUILoraRecipeDialog
+      v-model:visible="isRecipeBrowserVisible"
+      :comfyui-url="props.comfyuiUrl"
+      :lora-options="props.loraOptions"
+      @import="importRecipeFromBrowser"
     />
   </div>
 </template>
@@ -186,6 +201,7 @@ import {
 } from '@/constants/comfyui';
 import ComfyUILoraImportDialog from '@/panel/components/comfyui/ComfyUILoraImportDialog.vue';
 import ComfyUILoraBulkAddDialog from '@/panel/components/comfyui/ComfyUILoraBulkAddDialog.vue';
+import ComfyUILoraRecipeDialog from '@/panel/components/comfyui/ComfyUILoraRecipeDialog.vue';
 import ComfyUILoraOptionThumb from '@/panel/components/comfyui/ComfyUILoraOptionThumb.vue';
 import ComfyUILoraPreviewButton from '@/panel/components/comfyui/ComfyUILoraPreviewButton.vue';
 import CvMiniButton from '@/panel/components/CvMiniButton.vue';
@@ -279,6 +295,8 @@ const editingLoraId = ref<string | null>(null);
 const isImportVisible = ref(false);
 /** 控制从库批量添加弹窗的显示状态 */
 const isBulkAddVisible = ref(false);
+/** 控制搜索配方浏览器弹窗的显示状态 */
+const isRecipeBrowserVisible = ref(false);
 
 // 打开批量添加弹窗时若 LoRA 库尚未拉取则静默拉取一次
 watch(isBulkAddVisible, opened => {
@@ -424,6 +442,31 @@ function describeImportError(error: unknown): string {
   if (error instanceof SyntaxError) return '文件不是有效的 JSON';
   if (error instanceof Error) return error.message;
   return '导入 LoRA 预设失败';
+}
+
+/**
+ * 从搜索配方浏览器导入单个配方（新建分组 / 替换当前分组）
+ * @param payload 选中的配方与导入方式
+ */
+function importRecipeFromBrowser({ recipe, mode }: { recipe: ComfyUILoraRecipe; mode: 'new' | 'replace' }): void {
+  const index = createLoraOptionIndex(props.loraOptions.map(o => o.value));
+  const { entries, unmatched } = mapRecipeLorasToSettings(recipe.loras, index);
+  if (!entries.length) {
+    toastr.warning('该配方没有可导入的 LoRA');
+    return;
+  }
+  const loras = entries.map(entry => createComfyUILoraSetting(uuidv4(), entry));
+  if (mode === 'replace' && activePreset.value) {
+    updatePreset(activePreset.value.id, preset => ({ ...preset, loras }));
+    toastr.success('已用配方替换当前分组的 LoRA');
+  } else {
+    const existingNames = props.presetSettings.presets.map(p => p.name);
+    const name = buildRecipePresetName(recipe.title, recipe.baseModel, existingNames);
+    const preset = createComfyUILoraPreset(uuidv4(), name, loras);
+    emitPresetSettings([...props.presetSettings.presets, preset], preset.id);
+    toastr.success(`已从配方导入新分组「${name}」`);
+  }
+  if (unmatched.length) toastr.warning(`${unmatched.length} 个 LoRA 本地缺失，已禁用`);
 }
 
 /**

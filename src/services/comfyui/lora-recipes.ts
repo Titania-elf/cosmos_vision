@@ -23,6 +23,27 @@ const LORA_MANAGER_MISSING_MESSAGE =
 /** 单页拉取的配方条数 */
 export const COMFYUI_RECIPE_PAGE_SIZE = 40;
 
+/** 配方列表排序方式 */
+export type ComfyUILoraRecipeSort = 'date' | 'name' | 'loras_count';
+
+/** 配方列表排序选项 */
+export const COMFYUI_RECIPE_SORT_OPTIONS: ReadonlyArray<{ value: ComfyUILoraRecipeSort; label: string }> = [
+  { value: 'date', label: '最近修改' },
+  { value: 'name', label: '名称' },
+  { value: 'loras_count', label: 'LoRA 数量' },
+];
+
+/** 配方列表查询参数（搜索/排序/分页浏览器用） */
+export interface ComfyUILoraRecipeQuery {
+  /** 页码（从 1 开始） */
+  page?: number;
+  /** 单页条数 */
+  pageSize?: number;
+  /** 关键词（服务端标题/标签/LoRA 名/提示词搜索） */
+  search?: string;
+  sortBy?: ComfyUILoraRecipeSort;
+}
+
 /** 配方组名最大长度（超出截断，避免预设选择器被超长标题撑开） */
 const RECIPE_PRESET_NAME_MAX_LENGTH = 40;
 
@@ -142,6 +163,42 @@ export async function fetchComfyUILoraRecipesPage(
     unavailableMessage: 'LoRA Manager 未能返回配方列表',
     query: `?${params.toString()}`,
     // LoRA Manager 失败时返回 {error} 正文，直接透出比状态码更有信息量
+    handleHttpError: async response => {
+      throw new Error(
+        (await readLoraManagerErrorMessage(response)) ?? `LoRA Manager 配方接口请求失败 (${response.status})`,
+      );
+    },
+  });
+  return parseLoraManagerRecipePage(payload, baseUrl, currentPage, size);
+}
+
+/**
+ * 按查询（搜索 + 排序 + 分页）拉取配方（可搜索配方浏览器用）
+ * 复用共享 LoRA Manager 客户端，附加 search / sort_by 参数。
+ * @param comfyuiUrl ComfyUI 地址
+ * @param query 查询参数
+ * @returns 配方分页结果
+ */
+export async function fetchComfyUILoraRecipes(
+  comfyuiUrl: string,
+  query: ComfyUILoraRecipeQuery = {},
+): Promise<ComfyUILoraPage> {
+  const baseUrl = normalizeComfyUIUrl(comfyuiUrl);
+  const currentPage = readIntAtLeast(query.page, 1, 1);
+  const size = readIntAtLeast(query.pageSize, COMFYUI_RECIPE_PAGE_SIZE, 1);
+  const search = query.search?.trim() ?? '';
+  const params = new URLSearchParams({
+    page: String(currentPage),
+    page_size: String(size),
+    sort_by: query.sortBy ?? 'date',
+  });
+  if (search) params.set('search', search);
+  const payload = await requestLoraManagerPayload(baseUrl, {
+    path: LORA_MANAGER_RECIPES_PATH,
+    featureLabel: '配方接口',
+    notFoundMessage: LORA_MANAGER_MISSING_MESSAGE,
+    unavailableMessage: 'LoRA Manager 未能返回配方列表',
+    query: `?${params.toString()}`,
     handleHttpError: async response => {
       throw new Error(
         (await readLoraManagerErrorMessage(response)) ?? `LoRA Manager 配方接口请求失败 (${response.status})`,
