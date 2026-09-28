@@ -1,5 +1,11 @@
 export const saveSettingsDebounced = () => {};
 
+/** chat_metadata mock（人物档案 per-chat 存储用） */
+export const chat_metadata: Record<string, unknown> = {};
+
+/** 保存当前聊天 mock */
+export const saveChatDebounced = () => {};
+
 type EventListener = (...args: unknown[]) => void;
 
 /** 测试用事件总线：模拟 ST eventSource 的 on/emit/removeListener */
@@ -30,4 +36,6 @@ class MockEventSource {
 }
 
 export const eventSource = new MockEventSource();
-export const event_types: Record<string, string> = {};
+export const event_types: Record<string, string> = {
+  CHAT_CHANGED: 'chat_id_changed',
+};

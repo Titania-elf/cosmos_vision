@@ -12,6 +12,7 @@ import type {
 import { getPromptPersonTemplateEntryKind } from '@/constants/novelai';
 import type { PromptLlmRuntimeContent } from '@/services/prompt-llm/message-preset';
 import { buildAutoParticipantRuntimeContent, safeRenderPromptTemplate } from '@/services/prompt-profiles/auto-runtime';
+import { readChatProfiles } from '@/services/prompt-profiles/chat-store';
 import { resolvePromptPersonTemplateEntry } from '@/services/tavern-helper/prompt-profiles-sources';
 
 interface PromptPersonMatchContext {
@@ -89,10 +90,10 @@ export function createCustomPromptPersonTemplateEntry(title = '自定义条目',
  */
 export async function buildPromptProfilesRuntimeContent(
   context: PromptLlmContext,
-  promptProfiles: PromptProfilesSettings,
+  _promptProfiles: PromptProfilesSettings,
 ): Promise<PromptProfilesRuntimeResult> {
   const historyContent = context.historyParagraphs.join('\n\n').trim();
-  const matchedProfiles = await matchPromptProfiles(context.historyParagraphs, promptProfiles.profiles);
+  const matchedProfiles = await matchPromptProfiles(context.historyParagraphs, readChatProfiles());
   return {
     historyContent,
     participantContent: buildParticipantContext(matchedProfiles),

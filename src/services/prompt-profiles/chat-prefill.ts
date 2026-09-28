@@ -1,6 +1,6 @@
 import { chat_metadata, event_types, eventSource, saveChatDebounced } from '@sillytavern/script';
 
-import type { PromptPerson } from '@/constants/novelai';
+import type { PromptPerson } from '@/constants/prompt-llm';
 import { createPromptPerson } from '@/services/prompt-profiles/runtime';
 import { persistChatProfiles, readChatProfiles } from '@/services/prompt-profiles/chat-store';
 import { getCurrentCharacterKey, getCurrentUserPersonaKey } from '@/services/tavern-helper/prompt-profiles-context';

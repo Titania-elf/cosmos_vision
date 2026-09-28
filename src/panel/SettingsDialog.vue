@@ -99,6 +99,7 @@
             </svg>
             <i v-else class="cv-nav-icon" :class="item.icon" />
             <span class="cv-nav-label">{{ item.label }}</span>
+            <span v-if="item.value === 'prompt-profiles' && needsProfileBadge" class="cv-nav-badge" />
           </button>
         </div>
 
@@ -300,6 +301,8 @@ import SubTabNav from '@/panel/components/SubTabNav.vue';
 import { useSettingsOnboardingTutorial } from '@/panel/composables/useSettingsOnboardingTutorial';
 import { useShellDialogStyle } from '@/composables/useShellDialogStyle';
 import { useSettingsStore } from '@/store/settings';
+import { hasActiveChatProfiles } from '@/services/prompt-profiles/chat-store';
+import { event_types, eventSource } from '@sillytavern/script';
 import {
   FOCUSED_PARAGRAPH_ELEMENTS_KEY,
   FOCUSED_PARAGRAPH_MESSAGE_ID_KEY,
@@ -360,6 +363,14 @@ const settingsDialogClass = computed(() => ['cv-settings-dialog', { [DARK_CLASS]
 const confirmDialogClass = computed(() => ['cv-confirm-dialog', settingsDialogClass.value]);
 
 const { isMobile, dialogStyle } = useShellDialogStyle();
+
+/** 人物导航项未建档徽标：当前聊天无启用档案时显示 */
+const needsProfileBadge = ref(!hasActiveChatProfiles());
+const refreshProfileBadge = () => {
+  needsProfileBadge.value = !hasActiveChatProfiles();
+};
+eventSource.on(event_types.CHAT_CHANGED, refreshProfileBadge);
+onUnmounted(() => eventSource.removeListener(event_types.CHAT_CHANGED, refreshProfileBadge));
 
 /** 桌面端手动收起侧栏标记 */
 const railManuallyCollapsed = ref(false);
@@ -608,6 +619,7 @@ function handleShow(): void {
   if (tutorial.handleDialogShow()) return;
   settingsStore.resetDraftSettings();
   closeConfirmDialog();
+  needsProfileBadge.value = !hasActiveChatProfiles();
 }
 
 /**

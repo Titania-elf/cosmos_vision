@@ -1,6 +1,6 @@
 import { chat_metadata, saveChatDebounced } from '@sillytavern/script';
 
-import type { PromptPerson, PromptProfilesSettings } from '@/constants/novelai';
+import type { PromptPerson, PromptProfilesSettings } from '@/constants/prompt-llm';
 import { uuidv4 } from '@sillytavern/scripts/utils';
 
 /** chat_metadata 中本插件人物档案的命名空间 key */
