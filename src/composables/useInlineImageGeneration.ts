@@ -6,6 +6,7 @@ import {
 import { preventInlineEventBubbling } from '@/composables/inlineImageDom';
 import type { InlinePromptSnapshot } from '@/composables/inlineImageLightbox';
 import { useGalleryRuntimesStore, type GalleryGenerationContext } from '@/store/gallery-runtimes';
+import type { ImageSource } from '@/constants/comfyui';
 import { generateComfyUIImagesFromResolvedRequest } from '@/services/comfyui/api';
 import { resolveActiveComfyUILoraTriggerWords } from '@/services/comfyui/lora-trigger-words';
 import { findComfyUILoraPreset, getActiveComfyUILoraPreset } from '@/services/comfyui/lora-presets';
@@ -33,6 +34,7 @@ import { buildLlmInspectorLabel } from '@/services/prompt-llm/llm-inspector';
 import { buildLlmInspectorStoreHooks } from '@/store/llm-inspector';
 import { buildPromptLlmSchemaFields, getPromptLlmRequestError } from '@/services/tavern-helper/prompt-llm';
 import { useSettingsStore } from '@/store/settings';
+import { useGenerationStatsStore } from '@/store/generation-stats';
 import { resolveFreshPresetIdOverrides } from '@/services/image-prompt/random-preset-pool';
 import { getCurrentInstance, nextTick, ref } from 'vue';
 import { downloadInlineImageBlob } from '@/services/inline-image/image-download-transform';
@@ -86,6 +88,7 @@ export function useInlineImageGeneration(
   const requestPromptPairInput = options.requestPromptPairInput;
   const requestImageDownloadOptions = options.requestImageDownloadOptions;
   const settingsStore = useSettingsStore();
+  const statsStore = useGenerationStatsStore();
   /** 当前组件实例上下文,用于把 PrimeVue Button 渲染到聊天内联 DOM */
   const appContext = getCurrentInstance()?.appContext;
   /** 生成会话与取消控制 */
@@ -669,13 +672,15 @@ export function useInlineImageGeneration(
    */
   async function runImageStep(
     session: InlineGenerationSession,
+    source: ImageSource,
     retrySnapshot: InlinePromptSnapshot,
     task: () => Promise<InlineGenerationBatchResult>,
     onSnapshotResolved?: (snapshot: InlinePromptSnapshot) => void,
   ): Promise<InlineGenerationBatchResult> {
     onSnapshotResolved?.(retrySnapshot);
     session.status.setStatus('正在生成图片...');
-    return task();
+    // 图像请求经 statsStore 计时并记录；每次重试计为一次新记录，用户取消不计入
+    return statsStore.recordGeneration(source, session.controller.signal, task);
   }
 
   /**
@@ -713,13 +718,17 @@ export function useInlineImageGeneration(
   ): Promise<InlineGenerationBatchResult> {
     session.status.setStatus('正在生成图片...');
     const streamPreview = createNovelAIStreamPreviewSync(session);
+    // 快照重试路径同样计入耗时统计，图像源与请求内保持一致
+    const source = snapshot.imageSource ?? settings.imageSource;
     try {
-      return await generateImagesFromSnapshot(
-        settings,
-        snapshot,
-        session.controller.signal,
-        p => session.status.setProgress(p),
-        streamPreview.onStreamPreview,
+      return await statsStore.recordGeneration(source, session.controller.signal, () =>
+        generateImagesFromSnapshot(
+          settings,
+          snapshot,
+          session.controller.signal,
+          p => session.status.setProgress(p),
+          streamPreview.onStreamPreview,
+        ),
       );
     } finally {
       streamPreview.clear();
@@ -755,6 +764,7 @@ export function useInlineImageGeneration(
     const temporarySourceHashes = collectTemporaryVibeSourceHashes(request.prompts.vibeReferences);
     return runImageStep(
       session,
+      'novelai',
       createNovelAISnapshot(request.prompts),
       () => requestNovelAIImages(request, temporarySourceHashes, session),
       onSnapshotResolved,
@@ -867,6 +877,7 @@ export function useInlineImageGeneration(
     };
     return runImageStep(
       session,
+      'comfyui',
       createComfyUISnapshot(request.snapshot, promptParts),
       async () => ({
         promptSnapshot: createComfyUISnapshot(request.snapshot, promptParts),
