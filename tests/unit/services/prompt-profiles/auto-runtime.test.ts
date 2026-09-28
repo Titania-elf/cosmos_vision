@@ -12,7 +12,8 @@ import {
 import * as promptProfilesSources from '@/services/tavern-helper/prompt-profiles-sources';
 import * as wiModule from '@sillytavern/scripts/world-info';
 import { buildPromptLlmRuntimeContent } from '@/services/prompt-profiles/runtime';
-import type { PromptLlmContext, PromptLlmSettings, PromptProfilesSettings } from '@/constants/novelai';
+import { persistChatProfiles, readChatProfiles } from '@/services/prompt-profiles/chat-store';
+import type { PromptLlmContext, PromptLlmSettings, PromptPerson, PromptProfilesSettings } from '@/constants/novelai';
 
 function createMockWIPromptResult(worldInfoString: string) {
   return {
@@ -315,33 +316,44 @@ describe('auto-runtime service', () => {
       messageIndex: 3,
     };
 
-    const mockPromptProfiles: PromptProfilesSettings = {
-      profiles: [
+    const mockManualPerson: PromptPerson = {
+      id: 'person-1',
+      name: 'Manual Person',
+      kind: 'character',
+      enabled: true,
+      insertMode: 'always',
+      triggerKeywords: [],
+      staticTags: '1girl, solo',
+      templateEntries: [
         {
-          id: 'person-1',
-          name: 'Manual Person',
-          kind: 'character',
+          id: 'entry-1',
+          title: 'Entry',
           enabled: true,
-          insertMode: 'always',
-          triggerKeywords: [],
-          staticTags: '1girl, solo',
-          templateEntries: [
-            {
-              id: 'entry-1',
-              title: 'Entry',
-              enabled: true,
-              content: 'Manual Profile Content',
-            },
-          ],
+          content: 'Manual Profile Content',
         },
       ],
     };
 
+    // 全局 promptProfiles 参数已废弃：人物档案实际读取 chat_metadata
+    const mockPromptProfiles: PromptProfilesSettings = { profiles: [] };
+
+    /** 写入聊天档案并返回清理函数 */
+    function stageChatProfiles(): () => void {
+      const original = readChatProfiles();
+      persistChatProfiles([...original, mockManualPerson]);
+      return () => persistChatProfiles(original);
+    }
+
     it('uses manual promptProfiles when autoCharacterInfo is false or omitted', async () => {
-      const result = await buildPromptLlmRuntimeContent(mockContext, mockPromptProfiles);
-      expect(result.participantContent).toContain('Manual Profile Content');
-      expect(result.focusParagraphContent).toBe('Focus Paragraph Text');
-      expect(result.specialRequestContent).toBe('Special request detail');
+      const restore = stageChatProfiles();
+      try {
+        const result = await buildPromptLlmRuntimeContent(mockContext, mockPromptProfiles);
+        expect(result.participantContent).toContain('Manual Profile Content');
+        expect(result.focusParagraphContent).toBe('Focus Paragraph Text');
+        expect(result.specialRequestContent).toBe('Special request detail');
+      } finally {
+        restore();
+      }
     });
 
     it('merges auto participant XML and manual promptProfiles, placing manual profiles after auto participant content when autoCharacterInfo is true', async () => {
@@ -355,22 +367,26 @@ describe('auto-runtime service', () => {
         autoCharacterInfo: true,
       };
 
-      const result = await buildPromptLlmRuntimeContent(mockContext, mockPromptProfiles, settings);
-      expect(result.participantContent).toContain('<character_description>\nKnight Char\n</character_description>');
-      expect(result.participantContent).toContain('<person');
-      expect(result.participantContent).toContain('\nPlayer Persona\n</person>');
-      expect(result.participantContent).toContain('<world_info>\nMagic Realm\n</world_info>');
-      expect(result.participantContent).toContain('Manual Profile Content');
+      const restore = stageChatProfiles();
+      try {
+        const result = await buildPromptLlmRuntimeContent(mockContext, mockPromptProfiles, settings);
+        expect(result.participantContent).toContain('<character_description>\nKnight Char\n</character_description>');
+        expect(result.participantContent).toContain('<person');
+        expect(result.participantContent).toContain('\nPlayer Persona\n</person>');
+        expect(result.participantContent).toContain('<world_info>\nMagic Realm\n</world_info>');
+        expect(result.participantContent).toContain('Manual Profile Content');
 
-      // Verify that auto content comes before manual profile content
-      const autoIndex = result.participantContent.indexOf('<world_info>');
-      const manualIndex = result.participantContent.indexOf('Manual Profile Content');
-      expect(autoIndex).toBeLessThan(manualIndex);
+        // Verify that auto content comes before manual profile content
+        const autoIndex = result.participantContent.indexOf('<world_info>');
+        const manualIndex = result.participantContent.indexOf('Manual Profile Content');
+        expect(autoIndex).toBeLessThan(manualIndex);
 
-      expect(result.focusParagraphContent).toBe('Focus Paragraph Text');
-      expect(result.specialRequestContent).toBe('Special request detail');
-
-      vi.restoreAllMocks();
+        expect(result.focusParagraphContent).toBe('Focus Paragraph Text');
+        expect(result.specialRequestContent).toBe('Special request detail');
+      } finally {
+        restore();
+        vi.restoreAllMocks();
+      }
     });
   });
 });
