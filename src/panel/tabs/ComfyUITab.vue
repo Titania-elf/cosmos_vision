@@ -77,6 +77,14 @@
           @refresh-lora-options="fetchLoraOptions"
         />
         <div v-if="workflowValidationError" class="cv-field-warn">{{ workflowValidationError }}</div>
+
+        <!-- 分辨率组合：常驻面板，一键写入工作流尺寸节点 -->
+        <ComfyUIResolutionComboPanel
+          :combos="settings.comfyui.resolutionCombos"
+          :workflow-json="workflowEditorJson"
+          @update:combos="settings.comfyui.resolutionCombos = $event"
+          @update:workflow-json="workflowEditorJson = $event"
+        />
         <ComfyUIWorkflowEditDialog
           v-model:visible="isWorkflowEditDialogOpen"
           :preset-name="activeWorkflow?.name ?? ''"
@@ -138,6 +146,7 @@ import {
 } from '@/services/comfyui/workflow-presets';
 import ComfyUIWorkflowEditDialog from '@/panel/components/comfyui/ComfyUIWorkflowEditDialog.vue';
 import ComfyUIWorkflowEditor from '@/panel/components/comfyui/ComfyUIWorkflowEditor.vue';
+import ComfyUIResolutionComboPanel from '@/panel/components/comfyui/ComfyUIResolutionComboPanel.vue';
 import PresetImportDialog from '@/panel/components/PresetImportDialog.vue';
 import PresetSelector from '@/panel/components/PresetSelector.vue';
 import { useSettingsStore } from '@/store/settings';

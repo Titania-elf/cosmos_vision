@@ -11,6 +11,9 @@ export const IMAGE_SOURCES = [
 /** ComfyUI 可用的最大安全 seed */
 export const COMFYUI_MAX_SEED = Number.MAX_SAFE_INTEGER;
 
+/** 分辨率组合编辑器的常用边长候选（宽/高下拉） */
+export const COMFYUI_DIMENSION_PRESETS: number[] = [512, 640, 768, 832, 1024, 1088, 1216, 1472, 1536, 1920];
+
 export const DEFAULT_COMFYUI_LORA_PRESET_ID = 'comfyui-lora-default-preset';
 export const DEFAULT_COMFYUI_LORA_PRESET_NAME = '默认 LoRA 组';
 export const DEFAULT_COMFYUI_WORKFLOW_PRESET_ID = 'comfyui-workflow-default';
