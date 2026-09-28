@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { InlineGalleryGroupView, type InlineGalleryItem } from '@/composables/inlineImageGalleryView';
+import { openGenerationSchemeDialog } from '@/composables/generationSchemeDialog';
 import {
   invokeDownload,
   invokeGenerateEditable,
@@ -244,6 +245,7 @@ onUnmounted(() => {
       :generate-fresh="() => invokeGenerateFresh(mount)"
       :generate-with-editable-prompt="item => invokeGenerateEditable(mount, item)"
       :download-image="item => invokeDownload(item)"
+      :open-scheme="item => openGenerationSchemeDialog(item.promptSnapshot)"
     />
   </div>
 </template>

@@ -34,6 +34,8 @@ export interface InlineGalleryGroupProps {
   generateFresh: () => void;
   generateWithEditablePrompt: (item: InlineGalleryItem) => void;
   downloadImage?: (item: InlineGalleryItem) => void;
+  /** 打开生图方案切换弹窗（仅 ComfyUI 图片；无则不显示该操作） */
+  openScheme?: (item: InlineGalleryItem) => void;
 }
 
 interface InlineGalleryThumbnailStripProps {
@@ -58,6 +60,7 @@ export const InlineGalleryGroupView = defineComponent({
     generateFresh: { type: Function as PropType<() => void>, required: true },
     generateWithEditablePrompt: { type: Function as PropType<(item: InlineGalleryItem) => void>, required: true },
     downloadImage: { type: Function as PropType<(item: InlineGalleryItem) => void>, default: undefined },
+    openScheme: { type: Function as PropType<(item: InlineGalleryItem) => void>, default: undefined },
   },
   setup(props) {
     const resolvedProps = props as InlineGalleryGroupProps;
@@ -258,7 +261,7 @@ function buildGenerateActions(
   props: Readonly<InlineGalleryGroupProps>,
   item: InlineGalleryItem,
 ): InlineActionButtonSpec[] {
-  return [
+  const actions: InlineActionButtonSpec[] = [
     {
       label: '重新生图',
       icon: 'fa-solid fa-repeat',
@@ -281,6 +284,18 @@ function buildGenerateActions(
       onClick: () => props.generateFresh(),
     },
   ];
+  // 生图方案切换：仅 ComfyUI 图片可用（切工作流/LoRA组/分辨率后再重新生图）
+  if (props.openScheme && item.promptSnapshot?.comfyui) {
+    const openScheme = props.openScheme;
+    actions.push({
+      label: '生图方案',
+      icon: 'fa-solid fa-sliders',
+      severity: 'secondary',
+      variant: 'outlined',
+      onClick: () => openScheme(item),
+    });
+  }
+  return actions;
 }
 
 /**

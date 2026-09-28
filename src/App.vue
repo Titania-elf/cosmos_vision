@@ -50,6 +50,10 @@
     @submit="handleImageDownloadDialog"
   />
   <InlineImageLightbox />
+  <InlineGenerationSchemeDialog
+    v-model:visible="generationSchemeDialogState.open"
+    :snapshot="generationSchemeDialogState.snapshot"
+  />
   <Teleport to="body">
     <!-- 顶部生图模式提示蒙版 -->
     <Transition name="cv-fade">
@@ -144,6 +148,8 @@ import { DARK_CLASS } from '@/constants/default-settings';
 import SettingsDialog from '@/panel/SettingsDialog.vue';
 import ImageDownloadDialog from '@/panel/components/ImageDownloadDialog.vue';
 import InlineImageLightbox from '@/panel/components/InlineImageLightbox.vue';
+import InlineGenerationSchemeDialog from '@/panel/components/comfyui/InlineGenerationSchemeDialog.vue';
+import { generationSchemeDialogState } from '@/composables/generationSchemeDialog';
 import TextInputDialog from '@/panel/components/TextInputDialog.vue';
 import { useSettingsStore } from '@/store/settings';
 import {

@@ -16,7 +16,8 @@ import { getComfyUIWorkflowValidationError, normalizeComfyUIUrl, parseComfyUIWor
 import { applyModelMatch } from '@/services/comfyui/model-loaders';
 import { applySeedModes } from '@/services/comfyui/seed-runtime';
 import { getCachedComfyUIObjectInfo } from '@/services/comfyui/object-info';
-import { getActiveComfyUIWorkflowJson } from '@/services/comfyui/workflow-presets';
+import { getActiveComfyUIWorkflowJson, getActiveComfyUIWorkflowPreset } from '@/services/comfyui/workflow-presets';
+import { listResolutionTargets } from '@/services/comfyui/resolution-combos';
 import { ensureImageExportNode } from '@/services/comfyui/export-node';
 import type {
   ComfyUILoraSnapshot,
@@ -124,6 +125,7 @@ export function buildComfyUIResolvedRequestFromPrompts(
   const promptBindings = readPromptBindings(workflow);
   const imageBindings = readImageBindings(workflow);
   const loras = readLoraSnapshotsFromWorkflow(workflow);
+  const resolution = readWorkflowResolution(workflow);
   stripCosmosVisionMeta(workflow);
 
   return {
@@ -138,8 +140,21 @@ export function buildComfyUIResolvedRequestFromPrompts(
       seedValues,
       imageBindings,
       loras,
+      workflowPresetName: getActiveComfyUIWorkflowPreset(settings.workflowPresets).name,
+      loraPresetName: effectiveLoraPreset.name,
+      resolution,
     },
   };
+}
+
+/**
+ * 读取工作流首个分辨率目标的当前尺寸（无尺寸节点时返回 undefined）
+ * @param workflow 工作流
+ * @returns 分辨率或 undefined
+ */
+function readWorkflowResolution(workflow: ComfyUIWorkflow): { width: number; height: number } | undefined {
+  const target = listResolutionTargets(workflow)[0];
+  return target ? { width: target.width, height: target.height } : undefined;
 }
 
 /**
