@@ -201,6 +201,7 @@
 
 <script setup lang="ts">
 import CollapsiblePanelItem from '@/panel/components/CollapsiblePanelItem.vue';
+import CvExpandableTextarea from '@/panel/components/CvExpandableTextarea.vue';
 import CvMiniButton from '@/panel/components/CvMiniButton.vue';
 import CvMiniToggleSwitch from '@/panel/components/CvMiniToggleSwitch.vue';
 import StaticTagsDraftResult from '@/panel/components/StaticTagsDraftResult.vue';
