@@ -874,6 +874,21 @@ export const useSettingsStore = defineStore('cosmos_vision_settings', () => {
   }
 
   /**
+   * 即时应用当前激活工作流预设的 JSON 并立即持久化
+   * 用于按节点 LoRA 绑定这类必须让运行时立刻生效的改动：生图读的是已应用配置，
+   * 若等设置弹窗的「应用更改」，用户会以为节点选择的 LoRA 组没生效
+   * @param workflowJson 新的工作流 JSON
+   */
+  function applyActiveWorkflowJson(workflowJson: string): void {
+    for (const target of [settings, savedSettings]) {
+      const presets = target.comfyui.workflowPresets;
+      const preset = presets.presets.find(item => item.id === presets.activePresetId);
+      if (preset) preset.workflowJson = workflowJson;
+    }
+    persist(savedSettings);
+  }
+
+  /**
    * 即时应用 NPC 库变更并立即持久化
    * NPC 库按运行配置管理:草稿与已应用配置同步更新并立即落盘,
    * 避免忘记「应用更改」导致改动丢失,或运行时读到旧值
@@ -909,6 +924,7 @@ export const useSettingsStore = defineStore('cosmos_vision_settings', () => {
     stageImportedSettings,
     persistSavedSettings,
     applyLoraPresetSettings,
+    applyActiveWorkflowJson,
     applyNpcLibrarySettings,
     applyNpcLibraryToggles,
   };

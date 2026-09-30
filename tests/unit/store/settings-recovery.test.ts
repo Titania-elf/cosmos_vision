@@ -318,4 +318,27 @@ describe('settings store recovery and state management', () => {
     expect(comfyui.timeout).toBe(COMFYUI_DEFAULT_TIMEOUT);
     expect(comfyui.workflowPresets.presets.length).toBeGreaterThan(0);
   });
+
+  it('applies active workflow json to both draft and saved settings immediately', () => {
+    const store = useSettingsStore();
+    const nextJson = '{"1":{"class_type":"KSampler","inputs":{}}}';
+
+    store.settings.comfyui.workflowPresets.activePresetId = DEFAULT_COMFYUI_WORKFLOW_PRESET_ID;
+    store.applyActiveWorkflowJson(nextJson);
+
+    const findActive = (presets: { presets: { id: string; workflowJson: string }[]; activePresetId: string }) =>
+      presets.presets.find(preset => preset.id === presets.activePresetId)?.workflowJson;
+
+    // 草稿与已应用配置都要更新：生图读的是已应用配置，绑定不能等「应用更改」
+    expect(findActive(store.settings.comfyui.workflowPresets)).toBe(nextJson);
+    expect(findActive(store.savedSettings.comfyui.workflowPresets)).toBe(nextJson);
+  });
+
+  it('ignores active workflow json when the active preset is missing', () => {
+    const store = useSettingsStore();
+    store.settings.comfyui.workflowPresets.activePresetId = 'not-exist';
+
+    expect(() => store.applyActiveWorkflowJson('{"1":{}}')).not.toThrow();
+    expect((extensionSettings.cosmos_vision as { comfyui: unknown }).comfyui).toBeDefined();
+  });
 });

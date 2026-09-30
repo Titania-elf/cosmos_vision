@@ -74,6 +74,7 @@
           :tutorial-selected-node-id="tutorialNodeId"
           @update:favorite-node-ids="updateFavoriteNodeIds"
           @update:lora-preset-settings="settings.comfyui.loraPresets = $event"
+          @apply-lora-binding="applyLoraBindingWorkflowJson"
           @refresh-lora-options="fetchLoraOptions"
         />
         <div v-if="workflowValidationError" class="cv-field-warn">{{ workflowValidationError }}</div>
@@ -159,7 +160,8 @@ type ComfyUISubTab = 'api' | 'workflow' | 'preset' | 'test';
 type TextOption = { value: string; label: string };
 type PresetOption = { id: string; name: string };
 
-const { settings } = useSettingsStore();
+const settingsStore = useSettingsStore();
+const { settings } = settingsStore;
 const syncCacheStore = useSyncCacheStore();
 const isWorkflowEditDialogOpen = ref(false);
 
@@ -352,6 +354,18 @@ async function cloneWorkflowPreset(): Promise<void> {
 function updateFavoriteNodeIds(ids: string[]): void {
   if (!activeWorkflow.value) return;
   activeWorkflow.value.favoriteNodeIds = [...ids];
+}
+
+/**
+ * 立即应用按节点 LoRA 绑定的改动（草稿 + 已应用配置一并写入并落盘）
+ * 生图读的是已应用配置的工作流 JSON，绑定若等设置弹窗的「应用更改」，
+ * 用户切好一采/二采的 LoRA 组后生图仍会按旧的绑定走
+ * @param workflowJson 新的工作流 JSON
+ */
+function applyLoraBindingWorkflowJson(workflowJson: string): void {
+  if (props.tutorialNodeId) return;
+  workflowEditorJson.value = workflowJson;
+  settingsStore.applyActiveWorkflowJson(workflowJson);
 }
 
 /**

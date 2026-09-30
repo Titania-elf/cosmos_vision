@@ -317,6 +317,8 @@ const emit = defineEmits<{
   'update:modelValue': [value: string];
   'update:favorite-node-ids': [ids: string[]];
   'update:lora-preset-settings': [settings: ComfyUILoraPresetSettings];
+  /** 按节点 LoRA 绑定变更：需立即落到已应用配置，不能等设置弹窗的「应用更改」 */
+  'apply-lora-binding': [workflowJson: string];
   'refresh-lora-options': [];
 }>();
 const showConfirm =
@@ -691,6 +693,8 @@ const selectedLoraContext = computed<ComfyUILoraContext | null>(() => {
 
 /**
  * 修改当前选中节点的 LoRA 组绑定，并把改动后的生效组写回节点
+ * 绑定属于「运行时立刻生效」的配置（生图写进节点的 LoRA 就取决于它），
+ * 故走 apply-lora-binding 由上层同步写入草稿与已应用配置，而不是只改草稿
  * @param binding 新的绑定；null 表示清除绑定
  */
 function onLoraBindingUpdate(binding: ComfyUILoraNodeBinding | null): void {
@@ -706,7 +710,7 @@ function onLoraBindingUpdate(binding: ComfyUILoraNodeBinding | null): void {
     getActiveComfyUILoraPreset(props.loraPresetSettings),
   );
   if (preset) writeLoraPresetToNode(node, preset);
-  commitWorkflow(next);
+  emit('apply-lora-binding', serializeComfyUIWorkflow(next));
 }
 
 /**
