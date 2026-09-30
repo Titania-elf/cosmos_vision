@@ -191,6 +191,10 @@
             :lora-preset-settings="loraPresetSettings"
             :lora-options="loraOptions"
             :is-loading-loras="isLoadingLoras"
+            :lora-binding="selectedLoraContext?.binding ?? null"
+            :lora-default-mode="selectedLoraContext?.defaultMode ?? 'off'"
+            :lora-effective-preset-id="selectedLoraContext?.effectivePresetId ?? null"
+            :lora-follows-active="selectedLoraContext?.followsActive ?? false"
             :comfyui-url="comfyuiUrl"
             @set-image-output="setImageOutput"
             @toggle-favorite="toggleSelectedFavorite"
@@ -199,6 +203,7 @@
             @update:image-binding="updateImageBinding"
             @update:seed-mode="updateSeedMode"
             @update:lora-preset-settings="onLoraPresetUpdate"
+            @update:lora-binding="onLoraBindingUpdate"
             @refresh-lora-options="emit('refresh-lora-options')"
           />
         </div>
@@ -223,6 +228,10 @@
         :lora-preset-settings="loraPresetSettings"
         :lora-options="loraOptions"
         :is-loading-loras="isLoadingLoras"
+        :lora-binding="selectedLoraContext?.binding ?? null"
+        :lora-default-mode="selectedLoraContext?.defaultMode ?? 'off'"
+        :lora-effective-preset-id="selectedLoraContext?.effectivePresetId ?? null"
+        :lora-follows-active="selectedLoraContext?.followsActive ?? false"
         :comfyui-url="comfyuiUrl"
         @set-image-output="setImageOutput"
         @toggle-favorite="toggleSelectedFavorite"
@@ -231,6 +240,7 @@
         @update:image-binding="updateImageBinding"
         @update:seed-mode="updateSeedMode"
         @update:lora-preset-settings="onLoraPresetUpdate"
+        @update:lora-binding="onLoraBindingUpdate"
         @refresh-lora-options="emit('refresh-lora-options')"
       />
     </div>
@@ -240,19 +250,21 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import type { ComfyUILoraPresetSettings } from '@/constants/comfyui';
-import { DARK_CLASS } from '@/constants/default-settings';
-import { getActiveComfyUILoraPreset } from '@/services/comfyui/lora-presets';
+import { DARK_CLASS } from '@/constants/default-settings';import { getActiveComfyUILoraPreset } from '@/services/comfyui/lora-presets';
 import { writeLoraPresetToNode, isSupportedLoraNode } from '@/services/comfyui/lora-adapter';
+import { listLoraNodeIds, resolveLoraNodePreset } from '@/services/comfyui/lora-node-bindings';
 import { layoutWorkflow, readNodeDisplayName } from '@/services/comfyui/layout';
 import {
   readImageOutputNodeId,
   setImageOutputNode,
   clearImageOutputNode,
+  readLoraNodeBinding,
   readNodeMeta,
   setPromptBinding,
   setImageBinding,
   setSeedMode,
   readPromptBindings,
+  writeLoraNodeBinding,
 } from '@/services/comfyui/meta';
 import {
   fetchComfyUIObjectInfo,
@@ -261,8 +273,16 @@ import {
   listInputControls,
 } from '@/services/comfyui/object-info';
 import { parseComfyUIWorkflow, serializeComfyUIWorkflow } from '@/services/comfyui/parse';
-import type { ComfyUIObjectInfoMap, ComfyUIWorkflow, PromptBinding, SeedMode } from '@/services/comfyui/types';
+import type { ComfyUILoraNodeBinding, ComfyUIObjectInfoMap, ComfyUIWorkflow, PromptBinding, SeedMode } from '@/services/comfyui/types';
 import type { TavernAvatarSource } from '@/services/tavern-helper/avatar';
+
+/** 选中 LoRA 节点的绑定上下文 */
+interface ComfyUILoraContext {
+  binding: ComfyUILoraNodeBinding | null;
+  defaultMode: 'active' | 'off';
+  effectivePresetId: string | null;
+  followsActive: boolean;
+}
 import {
   buildFavoriteLocateOptions,
   pruneFavoriteNodeIds,
@@ -299,7 +319,6 @@ const emit = defineEmits<{
   'update:lora-preset-settings': [settings: ComfyUILoraPresetSettings];
   'refresh-lora-options': [];
 }>();
-
 const showConfirm =
   inject<
     (options: {
@@ -317,7 +336,7 @@ const fullscreen = ref(false);
 
 const locatePopover = ref<any>(null);
 
-/** 绑定区四项：正/负提示词、LoRA、段落生图结果 */
+/** 绑定区：正/负提示词、每个 LoRA 节点、段落生图结果 */
 const bindingLocateOptions = computed(() => {
   const wf = workflow.value;
   if (!wf) return [];
@@ -325,8 +344,15 @@ const bindingLocateOptions = computed(() => {
   const bindings = readPromptBindings(wf);
   const positiveId = bindings.find(b => b.binding === 'positive')?.nodeId ?? null;
   const negativeId = bindings.find(b => b.binding === 'negative')?.nodeId ?? null;
-  const loraId = Object.entries(wf).find(([_, node]) => isSupportedLoraNode(node))?.[0] ?? null;
   const outputId = readImageOutputNodeId(wf);
+  // 双采工作流可能有多个 LoRA 节点，逐个列出以便分别定位
+  const loraOptions = listLoraNodeIds(wf).map(nodeId => ({
+    key: `lora:${nodeId}`,
+    label: 'Lora组',
+    icon: 'fa-solid fa-puzzle-piece',
+    nodeId,
+    color: 'var(--cvp-purple-400)',
+  }));
 
   return [
     {
@@ -343,7 +369,7 @@ const bindingLocateOptions = computed(() => {
       nodeId: negativeId,
       color: 'var(--cvp-red-500)',
     },
-    { key: 'lora', label: 'Lora组', icon: 'fa-solid fa-puzzle-piece', nodeId: loraId, color: 'var(--cvp-purple-400)' },
+    ...loraOptions,
     { key: 'output', label: '段落生图结果', icon: 'fa-solid fa-image', nodeId: outputId, color: 'var(--cvp-blue-500)' },
   ];
 });
@@ -640,16 +666,81 @@ async function confirmParagraphResultRebind(next: ComfyUIWorkflow, nodeId: strin
 }
 
 /**
- * LoRA 预设变更后写入当前选中兼容节点
+ * 当前选中 LoRA 节点在 Inspector 中展示的绑定上下文
+ * 未绑定的首个 LoRA 节点沿用「跟随激活组」旧行为，其余未绑定节点不注入
+ * @returns 绑定点上下文；选中节点不是 LoRA 节点时为 null
+ */
+const selectedLoraContext = computed<ComfyUILoraContext | null>(() => {
+  const wf = workflow.value;
+  const nodeId = selectedNodeId.value;
+  if (!wf || !nodeId) return null;
+  const node = wf[nodeId];
+  if (!node || !isSupportedLoraNode(node)) return null;
+  const isFirstLoraNode = listLoraNodeIds(wf)[0] === nodeId;
+  const binding = readLoraNodeBinding(node);
+  const activePreset = getActiveComfyUILoraPreset(props.loraPresetSettings);
+  const effectivePreset = resolveLoraNodePreset(node, isFirstLoraNode, props.loraPresetSettings, activePreset);
+  return {
+    binding,
+    defaultMode: isFirstLoraNode ? 'active' : 'off',
+    effectivePresetId: effectivePreset?.id ?? null,
+    // 未绑定或显式跟随激活组的节点，面板里切组即改全局激活组；固定绑定的节点则重绑自身
+    followsActive: !binding || binding.mode === 'active',
+  };
+});
+
+/**
+ * 修改当前选中节点的 LoRA 组绑定，并把改动后的生效组写回节点
+ * @param binding 新的绑定；null 表示清除绑定
+ */
+function onLoraBindingUpdate(binding: ComfyUILoraNodeBinding | null): void {
+  const next = createSelectedNodeDraft();
+  if (!next) return;
+  const node = next[selectedNodeId.value!]!;
+  writeLoraNodeBinding(node, binding);
+  const isFirstLoraNode = listLoraNodeIds(next)[0] === selectedNodeId.value;
+  const preset = resolveLoraNodePreset(
+    node,
+    isFirstLoraNode,
+    props.loraPresetSettings,
+    getActiveComfyUILoraPreset(props.loraPresetSettings),
+  );
+  if (preset) writeLoraPresetToNode(node, preset);
+  commitWorkflow(next);
+}
+
+/**
+ * 创建只含选中节点的可写工作流草稿
+ * @returns 工作流草稿；无选中节点时为 null
+ */
+function createSelectedNodeDraft(): ComfyUIWorkflow | null {
+  const wf = workflow.value;
+  const nodeId = selectedNodeId.value;
+  if (!wf || !nodeId) return null;
+  const next = structuredClone(wf) as ComfyUIWorkflow;
+  return next[nodeId] ? next : null;
+}
+
+/**
+ * LoRA 预设变更后：同步预设集合，并把当前选中节点实际生效的组写回节点
+ * 该节点不注入时不写入，避免用面板激活组覆盖它（双采工作流的核心修复）
  * @param settings 预设集合
  */
 function onLoraPresetUpdate(settings: ComfyUILoraPresetSettings): void {
   emit('update:lora-preset-settings', settings);
-  if (!workflow.value || !selectedNodeId.value) return;
-  const next = structuredClone(workflow.value) as ComfyUIWorkflow;
-  const node = next[selectedNodeId.value];
-  if (!node) return;
-  writeLoraPresetToNode(node, getActiveComfyUILoraPreset(settings));
+  const next = createSelectedNodeDraft();
+  if (!next) return;
+  const nodeId = selectedNodeId.value!;
+  const node = next[nodeId]!;
+  if (!isSupportedLoraNode(node)) return;
+  const preset = resolveLoraNodePreset(
+    node,
+    listLoraNodeIds(next)[0] === nodeId,
+    settings,
+    getActiveComfyUILoraPreset(settings),
+  );
+  if (!preset) return;
+  writeLoraPresetToNode(node, preset);
   commitWorkflow(next);
 }
 

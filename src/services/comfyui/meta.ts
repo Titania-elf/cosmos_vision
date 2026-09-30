@@ -1,5 +1,6 @@
 import type {
   ComfyUIImageBindingTarget,
+  ComfyUILoraNodeBinding,
   ComfyUIObjectInfoMap,
   ComfyUIObjectInfoNode,
   ComfyUIPromptBindingTarget,
@@ -31,6 +32,25 @@ export function readNodeMeta(node: ComfyUIWorkflowNode): CosmosVisionNodeMeta {
 export function writeNodeMeta(node: ComfyUIWorkflowNode, meta: CosmosVisionNodeMeta): void {
   if (!node._meta) node._meta = {};
   node._meta.cosmosVision = meta;
+}
+
+/**
+ * 读取节点的 LoRA 组绑定
+ * @param node 工作流节点
+ * @returns 绑定；未设置时为 null
+ */
+export function readLoraNodeBinding(node: ComfyUIWorkflowNode): ComfyUILoraNodeBinding | null {
+  return readNodeMeta(node).loraBinding ?? null;
+}
+
+/**
+ * 写入或清除节点的 LoRA 组绑定
+ * @param node 工作流节点
+ * @param binding 绑定；null 表示清除
+ */
+export function writeLoraNodeBinding(node: ComfyUIWorkflowNode, binding: ComfyUILoraNodeBinding | null): void {
+  const { loraBinding: _cleared, ...rest } = readNodeMeta(node);
+  writeNodeMeta(node, binding ? { ...rest, loraBinding: binding } : rest);
 }
 
 /**

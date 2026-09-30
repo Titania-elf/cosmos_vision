@@ -9,6 +9,12 @@ export type ImageBindingSource = TavernAvatarSource;
 /** seed 控件模式 */
 export type SeedMode = 'fixed' | 'randomize' | 'increment' | 'decrement';
 
+/** 单个 LoRA 加载器节点使用的 LoRA 组绑定（缺省时首个节点跟随激活组，其余不注入） */
+export type ComfyUILoraNodeBinding =
+  | { mode: 'active' }
+  | { mode: 'fixed'; presetId: string }
+  | { mode: 'off' };
+
 /** CosmosVision 节点私有元数据 */
 export interface CosmosVisionNodeMeta {
   promptBindings?: Record<string, PromptBinding>;
@@ -16,6 +22,8 @@ export interface CosmosVisionNodeMeta {
   imageBindings?: Record<string, ImageBindingSource>;
   imageOutput?: boolean;
   modelMatch?: boolean;
+  /** 该 LoRA 节点使用的 LoRA 组绑定（仅 LoRA 加载器节点有意义） */
+  loraBinding?: ComfyUILoraNodeBinding;
 }
 
 /** 工作流节点元数据 */
@@ -206,6 +214,12 @@ export interface ComfyUILoraSnapshot {
   strength: number;
 }
 
+/** 单个 LoRA 节点的 LoRA 快照组 */
+export interface ComfyUILoraNodeSnapshot {
+  nodeId: string;
+  loras: ComfyUILoraSnapshot[];
+}
+
 /** ComfyUI 请求快照 */
 export interface ComfyUIRequestSnapshot {
   endpoint: string;
@@ -216,6 +230,8 @@ export interface ComfyUIRequestSnapshot {
   seedValues: ComfyUISeedModeTarget[];
   imageBindings?: ComfyUIImageBindingTarget[];
   loras: ComfyUILoraSnapshot[];
+  /** 本次实际注入的按节点 LoRA 方案（多 LoRA 节点工作流才有值，旧快照缺失） */
+  loraNodes?: ComfyUILoraNodeSnapshot[];
   /** 生图时使用的工作流预设名（旧快照可能缺失） */
   workflowPresetName?: string;
   /** 生图时激活的 LoRA 预设组名（旧快照可能缺失） */

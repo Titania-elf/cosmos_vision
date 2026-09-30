@@ -162,6 +162,7 @@ const COMFYUI_STEPS: readonly TutorialStep[] = [
     target: {
       selectors: [
         '[data-cv-tutorial="comfyui-lora-binding"]',
+        '[data-cv-tutorial="comfyui-lora-node-binding"]',
         '[data-cv-tutorial="comfyui-lora-node"]',
         '[data-cv-tutorial="comfyui-result-binding"]',
       ],

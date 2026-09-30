@@ -8,9 +8,11 @@ import type { InlinePromptSnapshot } from '@/composables/inlineImageLightbox';
 import { useGalleryRuntimesStore, type GalleryGenerationContext } from '@/store/gallery-runtimes';
 import type { ImageSource } from '@/constants/comfyui';
 import { generateComfyUIImagesFromResolvedRequest } from '@/services/comfyui/api';
-import { resolveActiveComfyUILoraTriggerWords } from '@/services/comfyui/lora-trigger-words';
+import { listEffectiveComfyUILoraPresets } from '@/services/comfyui/lora-node-bindings';
+import { resolveComfyUILoraTriggerWordsForPresets } from '@/services/comfyui/lora-trigger-words';
 import { findComfyUILoraPreset, getActiveComfyUILoraPreset } from '@/services/comfyui/lora-presets';
 import { buildComfyUIResolvedRequest, getComfyUIRequestError } from '@/services/comfyui/workflow';
+import { getActiveComfyUIWorkflowJson } from '@/services/comfyui/workflow-presets';
 import {
   buildNovelAIResolvedRequest,
   buildNovelAIPromptOverrides,
@@ -857,9 +859,15 @@ export function useInlineImageGeneration(
       : undefined;
     // 捕获不可变有效 LoRA 预设组，避免 await 期间面板切组导致触发词与工作流 LoRA 错配
     const effectiveLoraPreset = loraPreset ?? getActiveComfyUILoraPreset(settings.comfyui.loraPresets);
-    // 触发词按本次实际生效的 LoRA 组解析（传递 signal 支持中断）
-    const loraTriggerWords = await resolveActiveComfyUILoraTriggerWords(
-      { url: settings.comfyui.url, loraPresets: { ...settings.comfyui.loraPresets, activePresetId: effectiveLoraPreset.id } },
+    // 触发词按本次实际生效的全部 LoRA 组解析（双采工作流各节点可能绑定不同组；传递 signal 支持中断）
+    const effectiveLoraPresets = listEffectiveComfyUILoraPresets(
+      getActiveComfyUIWorkflowJson(settings.comfyui.workflowPresets),
+      settings.comfyui.loraPresets,
+      effectiveLoraPreset,
+    );
+    const loraTriggerWords = await resolveComfyUILoraTriggerWordsForPresets(
+      settings.comfyui,
+      effectiveLoraPresets,
       session.controller.signal,
     );
     generationSession.ensureActive(session);

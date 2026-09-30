@@ -68,16 +68,28 @@
           </div>
         </div>
         <div class="flex flex-col px-(--cv-space-xl)">
-          <ComfyUILoraPresetPanel
+          <ComfyUILoraNodeBindingSelect
             v-if="showLoraPanel && loraPresetSettings"
-            :preset-settings="loraPresetSettings"
+            :model-value="loraBinding ?? null"
+            :default-mode="loraDefaultMode"
+            :presets="loraPresetOptions"
+            :active-preset-name="activeLoraPresetName"
+            @update:model-value="emit('update:lora-binding', $event)"
+          />
+          <ComfyUILoraPresetPanel
+            v-if="panelPresetSettings && loraEffectivePresetId"
+            :key="nodeId ?? undefined"
+            :preset-settings="panelPresetSettings"
             :lora-options="loraOptions"
             :is-loading-loras="isLoadingLoras"
             :comfyui-url="comfyuiUrl"
-            @update:preset-settings="emit('update:lora-preset-settings', $event)"
+            @update:preset-settings="onPanelPresetSettingsUpdate"
             @refresh-options="emit('refresh-lora-options')"
           />
-          <Divider v-if="showLoraPanel && loraPresetSettings && parameterControls.length" :dt="dividerTokens" />
+          <Divider
+            v-if="panelPresetSettings && loraEffectivePresetId && parameterControls.length"
+            :dt="dividerTokens"
+          />
           <ComfyUIWorkflowInput
             v-for="control in parameterControls"
             :key="`${control.nodeId}:${control.inputName}`"
@@ -218,17 +230,20 @@
 <script setup lang="ts">
 import type { ComfyUILoraPresetSettings } from '@/constants/comfyui';
 import CvMiniButton from '@/panel/components/CvMiniButton.vue';
+import ComfyUILoraNodeBindingSelect from '@/panel/components/comfyui/ComfyUILoraNodeBindingSelect.vue';
 import ComfyUILoraPresetPanel from '@/panel/components/ComfyUILoraPresetPanel.vue';
 import ComfyUIResultBindingButton from '@/panel/components/comfyui/ComfyUIResultBindingButton.vue';
 import ComfyUIWorkflowInput from '@/panel/components/comfyui/ComfyUIWorkflowInput.vue';
 import { readNodeDisplayName } from '@/services/comfyui/layout';
 import { isLoraPanelManagedInput, isSupportedLoraNode } from '@/services/comfyui/lora-adapter';
+import { resolveLoraPanelUpdateAction } from '@/services/comfyui/lora-node-bindings';
 import { readNodeMeta } from '@/services/comfyui/meta';
 import { isModelMatchManagedInput } from '@/services/comfyui/model-loaders';
 import { isGenericPortType } from '@/services/comfyui/object-info-elementary';
 import type {
   ComfyUIInputControlDesc,
   ComfyUIObjectInfoOutputSpec,
+  ComfyUILoraNodeBinding,
   ComfyUIWorkflowNode,
   PromptBinding,
   SeedMode,
@@ -253,6 +268,14 @@ const props = withDefaults(
     loraPresetSettings?: ComfyUILoraPresetSettings;
     loraOptions: { value: string; label: string }[];
     isLoadingLoras: boolean;
+    /** 选中节点已保存的 LoRA 组绑定（null 表示未显式设置） */
+    loraBinding?: ComfyUILoraNodeBinding | null;
+    /** 未设置绑定时该节点的默认行为：首个 LoRA 节点跟随激活组，其余不注入 */
+    loraDefaultMode?: 'active' | 'off';
+    /** 选中节点实际生效的 LoRA 组 ID；不注入时为 null */
+    loraEffectivePresetId?: string | null;
+    /** 选中节点是否跟随当前激活组（未绑定或绑定为跟随；面板里切换组时应改全局激活组而非重绑） */
+    loraFollowsActive?: boolean;
     fullscreen?: boolean;
     comfyuiUrl?: string;
   }>(),
@@ -260,6 +283,10 @@ const props = withDefaults(
     fullscreen: false,
     isFavorite: false,
     loraPresetSettings: undefined,
+    loraBinding: null,
+    loraDefaultMode: 'off',
+    loraEffectivePresetId: null,
+    loraFollowsActive: false,
     comfyuiUrl: '',
   },
 );
@@ -272,6 +299,7 @@ const emit = defineEmits<{
   'update:image-binding': [inputName: string, source: TavernAvatarSource | null];
   'update:seed-mode': [inputName: string, mode: SeedMode | null];
   'update:lora-preset-settings': [settings: ComfyUILoraPresetSettings];
+  'update:lora-binding': [binding: ComfyUILoraNodeBinding | null];
   'refresh-lora-options': [];
 }>();
 
@@ -286,6 +314,49 @@ const isImageOutput = computed(() => Boolean(props.node && readNodeMeta(props.no
 /** 候选可选，或已绑定（便于取消） */
 const showOutputChip = computed(() => props.canSetOutput || isImageOutput.value);
 const showLoraPanel = computed(() => isSupportedLoraNode(props.node ?? undefined));
+
+/** LoRA 库面板可选的 LoRA 组 */
+const loraPresetOptions = computed(() =>
+  (props.loraPresetSettings?.presets ?? []).map(preset => ({ id: preset.id, name: preset.name })),
+);
+
+/** 当前激活组名（供「跟随当前激活组」选项文案） */
+const activeLoraPresetName = computed(() => {
+  const settings = props.loraPresetSettings;
+  if (!settings) return '';
+  return settings.presets.find(preset => preset.id === settings.activePresetId)?.name?.trim() ?? '';
+});
+
+/** 传给 LoRA 库面板的视图：显示与编辑目标换成该节点实际生效的组 */
+const panelPresetSettings = computed<ComfyUILoraPresetSettings | undefined>(() => {
+  if (!props.loraPresetSettings || !props.loraEffectivePresetId) return props.loraPresetSettings;
+  return { ...props.loraPresetSettings, activePresetId: props.loraEffectivePresetId };
+});
+
+/**
+ * 转发 LoRA 库面板提交的预设变更
+ * 跟随激活组的节点维持原有行为（面板切组即改全局激活组）；
+ * 固定绑定节点的切组视为重绑该节点，删除所绑的组则清除绑定（不静默改绑到兜底组），
+ * 仅编辑组内容时也还原真实全局激活组，避免把该节点绑定的组顶上全局
+ * @param next 面板提交的预设集合
+ */
+function onPanelPresetSettingsUpdate(next: ComfyUILoraPresetSettings): void {
+  const viewPresetId = props.loraEffectivePresetId;
+  if (props.loraFollowsActive || !props.loraPresetSettings || !viewPresetId) {
+    emit('update:lora-preset-settings', next);
+    return;
+  }
+  const action = resolveLoraPanelUpdateAction(next, viewPresetId);
+  if (action === 'removed') {
+    emit('update:lora-binding', null);
+  } else if (action === 'switch') {
+    emit('update:lora-binding', { mode: 'fixed', presetId: next.activePresetId });
+  }
+  emit('update:lora-preset-settings', {
+    presets: next.presets,
+    activePresetId: props.loraPresetSettings.activePresetId,
+  });
+}
 
 /** LoRA 节点隐藏面板已托管的 text/loras，modelMatch 节点隐藏自动填充的 string */
 const visibleControls = computed(() =>

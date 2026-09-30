@@ -4,9 +4,9 @@ import {
   type ComfyUILoraPresetSettings,
   type ComfyUILoraSetting,
 } from '@/constants/comfyui';
-import { writeLoraPresetToNode, isSupportedLoraNode } from '@/services/comfyui/lora-adapter';
+import { writeLoraPresetToNode } from '@/services/comfyui/lora-adapter';
+import { resolveComfyUILoraNodeAssignments } from '@/services/comfyui/lora-node-bindings';
 import { parseComfyUIWorkflow, serializeComfyUIWorkflow } from '@/services/comfyui/parse';
-import type { ComfyUIWorkflow } from '@/services/comfyui/types';
 
 /**
  * 查找指定 ID 的 ComfyUI LoRA 预设组
@@ -40,19 +40,9 @@ export function getActiveComfyUILoras(settings: ComfyUILoraPresetSettings): Comf
 }
 
 /**
- * 将 LoRA 预设组写入工作流对象中的第一个兼容 LoRA 节点（就地修改）
- * @param workflow 已解析的工作流对象
- * @param preset 要写入的 LoRA 预设组
- */
-export function applyLoraPresetToWorkflow(workflow: ComfyUIWorkflow, preset: ComfyUILoraPreset): void {
-  const node = findCompatibleLoraNode(workflow);
-  if (!node) return;
-  writeLoraPresetToNode(node, preset);
-}
-
-/**
  * 将当前激活 LoRA 预设组写入工作流 JSON 中的兼容节点
- * 用于工作流整体被替换（重置默认/导入）后保持 LoRA 节点与激活预设一致
+ * 用于工作流整体被替换（重置默认/导入）后保持 LoRA 节点与激活预设一致；
+ * 按节点绑定解析，绑定为「不注入」的节点不改动
  * @param workflowJson 工作流 JSON 文本
  * @param settings LoRA 预设组集合
  * @returns 写入后的工作流 JSON；无兼容节点或解析失败时返回原文
@@ -63,22 +53,17 @@ export function applyActiveLoraPresetToWorkflowJson(
 ): string {
   try {
     const workflow = parseComfyUIWorkflow(workflowJson);
-    const node = findCompatibleLoraNode(workflow);
-    if (!node) return workflowJson;
-    writeLoraPresetToNode(node, getActiveComfyUILoraPreset(settings));
+    const activePreset = getActiveComfyUILoraPreset(settings);
+    const assignments = resolveComfyUILoraNodeAssignments(workflow, settings, activePreset);
+    if (!assignments.length) return workflowJson;
+    for (const { nodeId, preset } of assignments) {
+      const node = workflow[nodeId];
+      if (node) writeLoraPresetToNode(node, preset);
+    }
     return serializeComfyUIWorkflow(workflow);
   } catch {
     return workflowJson;
   }
-}
-
-/**
- * 查找工作流中第一个兼容 LoRA 的节点
- * @param workflow 已解析的工作流对象
- * @returns 兼容节点或 undefined
- */
-function findCompatibleLoraNode(workflow: ComfyUIWorkflow) {
-  return Object.values(workflow).find(isSupportedLoraNode);
 }
 
 /**

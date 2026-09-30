@@ -1,7 +1,12 @@
 import type { ComfyUILoraPreset, ComfyUISettings } from '@/constants/comfyui';
 import type { ImagePromptPresetSettings } from '@/constants/image-prompt';
 import { buildImagePromptPair, type ImagePromptPair } from '@/services/image-prompt/presets';
-import { readLoraSnapshotsFromWorkflow, writeLoraPresetToNode, isSupportedLoraNode } from '@/services/comfyui/lora-adapter';
+import { readLoraNodeSnapshots, writeLoraPresetToNode } from '@/services/comfyui/lora-adapter';
+import {
+  listLoraNodeIds,
+  resolveComfyUILoraNodeAssignments,
+  type ComfyUILoraNodeAssignment,
+} from '@/services/comfyui/lora-node-bindings';
 import { getActiveComfyUILoraPreset, prependLoraTriggerWords } from '@/services/comfyui/lora-presets';
 import {
   readImageBindings,
@@ -20,12 +25,34 @@ import { getActiveComfyUIWorkflowJson, getActiveComfyUIWorkflowPreset } from '@/
 import { listResolutionTargets } from '@/services/comfyui/resolution-combos';
 import { ensureImageExportNode } from '@/services/comfyui/export-node';
 import type {
+  ComfyUILoraNodeSnapshot,
   ComfyUILoraSnapshot,
   ComfyUIObjectInfoMap,
   ComfyUIRequestSnapshot,
   ComfyUIResolvedRequest,
   ComfyUIWorkflow,
 } from '@/services/comfyui/types';
+
+/** 回放快照生成的 LoRA 预设组名 */
+const LORA_PLAYBACK_PRESET_NAME = 'Playback';
+
+/** 本次未向任何 LoRA 节点注入 LoRA 时的展示名 */
+const LORA_NOT_INJECTED_NAME = '未注入';
+
+/**
+ * LoRA 覆写目标（带标记形式）
+ * 旧调用方仍可直接传预设组或扁平快照列表，带标记形式用于区分「空快照」与「不写入任何节点」
+ */
+export type ComfyUILoraOverride =
+  | { kind: 'preset'; preset: ComfyUILoraPreset }
+  | { kind: 'flat'; loras: readonly ComfyUILoraSnapshot[] }
+  | { kind: 'nodes'; nodes: readonly ComfyUILoraNodeSnapshot[] };
+
+/** 本次的 LoRA 写入方案 */
+interface ComfyUILoraPlan {
+  assignments: ComfyUILoraNodeAssignment[];
+  presetName: string;
+}
 
 /**
  * 将快照 LoRA 列表转换为等效预设组
@@ -37,7 +64,7 @@ export function createComfyUILoraPresetFromSnapshots(
 ): ComfyUILoraPreset {
   return {
     id: 'playback-snapshot-loras',
-    name: 'Playback',
+    name: LORA_PLAYBACK_PRESET_NAME,
     loras: loras.map((lora, index) => ({
       id: `snapshot-lora-${index}`,
       name: lora.name,
@@ -56,11 +83,38 @@ export function createComfyUILoraPresetFromSnapshots(
  */
 function resolveEffectiveLoraPreset(
   settings: Pick<ComfyUISettings, 'loraPresets'>,
-  loraPresetOrSnapshots?: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[],
+  override?: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[] | ComfyUILoraOverride,
 ): ComfyUILoraPreset {
-  if (!loraPresetOrSnapshots) return getActiveComfyUILoraPreset(settings.loraPresets);
-  if ('id' in loraPresetOrSnapshots) return loraPresetOrSnapshots;
-  return createComfyUILoraPresetFromSnapshots(loraPresetOrSnapshots);
+  if (!override) return getActiveComfyUILoraPreset(settings.loraPresets);
+  if (isTaggedLoraOverride(override)) {
+    return override.kind === 'preset'
+      ? override.preset
+      : createComfyUILoraPresetFromSnapshots(override.kind === 'flat' ? override.loras : []);
+  }
+  if (isFlatLoraOverride(override)) return createComfyUILoraPresetFromSnapshots(override);
+  return override;
+}
+
+/**
+ * 判断是否为带标记的 LoRA 覆写
+ * @param value 待判断的覆写值
+ * @returns 是否为带标记的覆写
+ */
+function isTaggedLoraOverride(
+  value: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[] | ComfyUILoraOverride | undefined,
+): value is ComfyUILoraOverride {
+  return Boolean(value) && !Array.isArray(value) && 'kind' in (value as ComfyUILoraOverride);
+}
+
+/**
+ * 判断是否为（旧式）扁平快照列表
+ * @param value 待判断的覆写值
+ * @returns 是否为扁平快照列表
+ */
+function isFlatLoraOverride(
+  value: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[] | ComfyUILoraOverride | undefined,
+): value is readonly ComfyUILoraSnapshot[] {
+  return Array.isArray(value);
 }
 
 /**
@@ -70,7 +124,7 @@ function resolveEffectiveLoraPreset(
  * @param prompts 正负提示词覆写
  * @param loraTriggerWords 本次生效 LoRA 的触发词
  * @param presetIds 本次实际使用的预设 ID（随机池抽中或面板当前），缺省用设置内引用
- * @param loraPreset 显式指定的 LoRA 预设组或快照列表；传入则不再读取面板激活组
+ * @param loraOverride 显式指定的 LoRA 覆写（预设组 / 扁平快照 / 按节点分组快照）；缺省按节点绑定解析
  * @returns 可直接发送的工作流与快照
  */
 export function buildComfyUIResolvedRequest(
@@ -79,7 +133,7 @@ export function buildComfyUIResolvedRequest(
   prompts: ImagePromptPair,
   loraTriggerWords: readonly string[] = [],
   presetIds?: { positive: string; negative: string },
-  loraPreset?: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[],
+  loraOverride?: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[] | ComfyUILoraOverride,
 ): ComfyUIResolvedRequest {
   const references = presetIds
     ? { positivePromptPresetId: presetIds.positive, negativePromptPresetId: presetIds.negative }
@@ -88,7 +142,7 @@ export function buildComfyUIResolvedRequest(
     settings,
     buildImagePromptPair(presetSettings, references, prompts),
     loraTriggerWords,
-    loraPreset,
+    loraOverride,
   );
 }
 
@@ -97,22 +151,23 @@ export function buildComfyUIResolvedRequest(
  * @param settings ComfyUI 设置
  * @param prompts 已完成拼接的正负提示词
  * @param loraTriggerWords 本次生效 LoRA 的触发词
- * @param loraPresetOrSnapshots 显式指定的 LoRA 预设组或快照列表；传入则不再读取面板激活组
+ * @param loraOverride 显式指定的 LoRA 覆写（预设组 / 旧扁平快照 / 按节点分组快照）；缺省按节点绑定解析
  * @returns 可直接发送的工作流与快照
  */
 export function buildComfyUIResolvedRequestFromPrompts(
   settings: ComfyUISettings,
   prompts: ImagePromptPair,
   loraTriggerWords: readonly string[] = [],
-  loraPresetOrSnapshots?: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[],
+  loraOverride?: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[] | ComfyUILoraOverride,
 ): ComfyUIResolvedRequest {
   const objectInfo = getCachedComfyUIObjectInfo(settings.url);
   const workflowJson = getActiveComfyUIWorkflowJson(settings.workflowPresets);
   const source = parseAndValidateWorkflow(workflowJson, objectInfo);
   const { positivePrompt, negativePrompt } = requirePromptPair(prompts);
   const workflow = structuredClone(source) as ComfyUIWorkflow;
-  const effectiveLoraPreset = resolveEffectiveLoraPreset(settings, loraPresetOrSnapshots);
-  const hasLoraNode = applyLoraPreset(workflow, effectiveLoraPreset);
+  const loraPlan = resolveLoraPlan(workflow, settings, loraOverride);
+  applyLoraPlan(workflow, loraPlan);
+  const hasLoraNode = loraPlan.assignments.length > 0;
   applyModelMatch(workflow);
   // 仅当工作流确实承载了生效 LoRA 时才前置触发词，避免未加载的 LoRA 污染提示词
   const triggeredPositivePrompt = hasLoraNode
@@ -124,7 +179,11 @@ export function buildComfyUIResolvedRequestFromPrompts(
   const exportNodeId = ensureImageExportNode(workflow, imageOutputNodeId, objectInfo);
   const promptBindings = readPromptBindings(workflow);
   const imageBindings = readImageBindings(workflow);
-  const loras = readLoraSnapshotsFromWorkflow(workflow);
+  // 只回读真正写入过的节点，避免把工作流内嵌的 LoRA 记成本插件注入
+  const loraNodes = readLoraNodeSnapshots(
+    workflow,
+    loraPlan.assignments.map(assignment => assignment.nodeId),
+  );
   const resolution = readWorkflowResolution(workflow);
   stripCosmosVisionMeta(workflow);
 
@@ -139,9 +198,10 @@ export function buildComfyUIResolvedRequestFromPrompts(
       promptBindings,
       seedValues,
       imageBindings,
-      loras,
+      loras: loraNodes.flatMap(node => node.loras),
+      loraNodes,
       workflowPresetName: getActiveComfyUIWorkflowPreset(settings.workflowPresets).name,
-      loraPresetName: effectiveLoraPreset.name,
+      loraPresetName: summarizeLoraPresetNames(loraPlan.assignments),
       resolution,
     },
   };
@@ -179,16 +239,85 @@ function parseAndValidateWorkflow(
 }
 
 /**
- * 将生效 LoRA 预设写入工作流副本中的首个兼容节点
+ * 解析本次的 LoRA 写入方案
+ * 按节点分组的回放快照各写各的节点；旧式扁平快照全部写入首个 LoRA 节点；
+ * 其余情况按节点绑定解析（激活组 / 固定组 / 不注入）
  * @param workflow 工作流副本
- * @param preset 本次生效的 LoRA 预设组（激活组或随机池抽中组）
- * @returns 工作流是否存在兼容 LoRA 节点（false 表示 LoRA 未被注入工作流）
+ * @param settings ComfyUI 设置
+ * @param override 显式 LoRA 覆写
+ * @returns 写入方案
  */
-function applyLoraPreset(workflow: ComfyUIWorkflow, preset: ComfyUILoraPreset): boolean {
-  const node = Object.values(workflow).find(isSupportedLoraNode);
-  if (!node) return false;
-  writeLoraPresetToNode(node, preset);
-  return true;
+function resolveLoraPlan(
+  workflow: ComfyUIWorkflow,
+  settings: Pick<ComfyUISettings, 'loraPresets'>,
+  override?: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[] | ComfyUILoraOverride,
+): ComfyUILoraPlan {  if (isTaggedLoraOverride(override) && override.kind === 'nodes') {
+    return { assignments: toNodeAssignments(workflow, override.nodes), presetName: LORA_PLAYBACK_PRESET_NAME };
+  }
+  if (isTaggedLoraOverride(override) && override.kind === 'flat') {
+    return toFlatLoraPlan(workflow, override.loras);
+  }
+  if (isFlatLoraOverride(override)) return toFlatLoraPlan(workflow, override);
+  const activePreset = resolveEffectiveLoraPreset(settings, override);
+  const assignments = resolveComfyUILoraNodeAssignments(workflow, settings.loraPresets, activePreset);
+  return { assignments, presetName: summarizeLoraPresetNames(assignments) };
+}
+
+/**
+ * 旧式扁平快照：全部写入首个 LoRA 节点（空列表也写入，用于按旧语义清空该节点）
+ * @param workflow 工作流副本
+ * @param loras 扁平 LoRA 快照列表
+ * @returns 写入方案
+ */
+function toFlatLoraPlan(workflow: ComfyUIWorkflow, loras: readonly ComfyUILoraSnapshot[]): ComfyUILoraPlan {
+  const firstNodeId = listLoraNodeIds(workflow)[0];
+  if (!firstNodeId) return { assignments: [], presetName: LORA_NOT_INJECTED_NAME };
+  return {
+    assignments: [{ nodeId: firstNodeId, preset: createComfyUILoraPresetFromSnapshots(loras) }],
+    presetName: LORA_PLAYBACK_PRESET_NAME,
+  };
+}
+
+/**
+ * 按节点分组的回放快照：各写各的节点，来源节点已不存在的分组丢弃
+ * @param workflow 工作流副本
+ * @param nodes 按节点分组的 LoRA 快照
+ * @returns 节点与生效组的对应列表
+ */
+function toNodeAssignments(
+  workflow: ComfyUIWorkflow,
+  nodes: readonly ComfyUILoraNodeSnapshot[],
+): ComfyUILoraNodeAssignment[] {
+  const validNodeIds = new Set(listLoraNodeIds(workflow));
+  return nodes
+    .filter(node => validNodeIds.has(node.nodeId))
+    .map(node => ({ nodeId: node.nodeId, preset: createComfyUILoraPresetFromSnapshots(node.loras) }));
+}
+
+/**
+ * 将解析出的 LoRA 组写入工作流副本
+ * @param workflow 工作流副本
+ * @param plan 写入方案
+ */
+function applyLoraPlan(workflow: ComfyUIWorkflow, plan: ComfyUILoraPlan): void {
+  for (const { nodeId, preset } of plan.assignments) {
+    const node = workflow[nodeId];
+    if (node) writeLoraPresetToNode(node, preset);
+  }
+}
+
+/**
+ * 汇总本次生效的 LoRA 组名（去重，多组以「 / 」连接）
+ * @param assignments 节点与生效组的对应列表
+ * @returns 组名字符串；未注入任何组时为「未注入」
+ */
+function summarizeLoraPresetNames(assignments: readonly ComfyUILoraNodeAssignment[]): string {
+  const names: string[] = [];
+  for (const { preset } of assignments) {
+    const name = preset.name?.trim();
+    if (name && !names.includes(name)) names.push(name);
+  }
+  return names.length ? names.join(' / ') : LORA_NOT_INJECTED_NAME;
 }
 
 /**

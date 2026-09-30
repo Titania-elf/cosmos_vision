@@ -59,7 +59,8 @@ async function generateComfyUIImagesFromSnapshot(
   signal: AbortSignal,
   onProgress?: (progress: ComfyUIProgress) => void,
 ): Promise<InlineGenerationBatchResult> {
-  const snapshotLoras = snapshot.comfyui?.loras ?? [];
+  const loraNodes = snapshot.comfyui?.loraNodes;
+  const snapshotLoras = loraNodes?.flatMap(node => node.loras) ?? snapshot.comfyui?.loras ?? [];
   const prompts = resolveComfyUIPlaybackPrompts(settings, snapshot);
   const loraTriggerWords = snapshot.promptParts
     ? await resolveComfyUILoraTriggerWords(settings.comfyui.url, snapshotLoras.map(l => l.name), signal)
@@ -67,7 +68,9 @@ async function generateComfyUIImagesFromSnapshot(
 
   const result = await generateComfyUIImagesFromPrompts(settings.comfyui, prompts, {
     signal,
-    loras: snapshotLoras,
+    loras: snapshot.comfyui?.loras ?? [],
+    // 仅在快照确实按节点记录时才下发分组，保持旧快照的调用形状完全不变
+    ...(loraNodes !== undefined ? { loraNodes } : {}),
     loraTriggerWords,
     onProgress,
   });

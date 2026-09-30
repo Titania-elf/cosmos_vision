@@ -1,5 +1,11 @@
 import type { ComfyUILoraPreset, ComfyUILoraSetting } from '@/constants/comfyui';
-import type { ComfyUILoraSnapshot, ComfyUIWorkflow, ComfyUIWorkflowNode } from '@/services/comfyui/types';
+import { readLoraNodeBinding } from '@/services/comfyui/meta';
+import type {
+  ComfyUILoraNodeSnapshot,
+  ComfyUILoraSnapshot,
+  ComfyUIWorkflow,
+  ComfyUIWorkflowNode,
+} from '@/services/comfyui/types';
 
 /** LoRA 节点适配器 */
 export interface ComfyUILoraNodeAdapter {
@@ -39,6 +45,7 @@ export function isSupportedLoraNode(node: ComfyUIWorkflowNode | undefined): bool
 
 /**
  * 判断输入是否由 LoRA 预设面板托管（应隐藏默认 text/loras 控件）
+ * 绑定为「不注入」的节点由工作流自身承载 LoRA，需暴露原始控件供查看与编辑
  * @param node 工作流节点
  * @param inputName 输入名
  * @returns 是否托管
@@ -47,7 +54,9 @@ export function isLoraPanelManagedInput(
   node: ComfyUIWorkflowNode | undefined,
   inputName: string,
 ): boolean {
-  return isSupportedLoraNode(node) && (inputName === 'text' || inputName === 'loras');
+  if (!isSupportedLoraNode(node)) return false;
+  if (readLoraNodeBinding(node!)?.mode === 'off') return false;
+  return inputName === 'text' || inputName === 'loras';
 }
 
 /**
@@ -60,17 +69,25 @@ export function writeLoraPresetToNode(node: ComfyUIWorkflowNode, preset: ComfyUI
 }
 
 /**
- * 从工作流中只读汇总已启用的 LoRA 快照
+ * 从工作流中只读汇总指定兼容 LoRA 节点已启用的 LoRA 快照
+ * 只读取调用方真正写入过的节点，避免把工作流内嵌的 LoRA 误记为本插件注入
  * @param workflow 工作流
- * @returns LoRA 快照列表
+ * @param nodeIds 目标节点 ID 列表（保序；不存在或非兼容节点会被跳过）
+ * @returns 按节点分组的 LoRA 快照
  */
-export function readLoraSnapshotsFromWorkflow(workflow: ComfyUIWorkflow): ComfyUILoraSnapshot[] {
-  for (const node of Object.values(workflow)) {
+export function readLoraNodeSnapshots(
+  workflow: ComfyUIWorkflow,
+  nodeIds: readonly string[],
+): ComfyUILoraNodeSnapshot[] {
+  const groups: ComfyUILoraNodeSnapshot[] = [];
+  for (const nodeId of nodeIds) {
+    const node = workflow[nodeId];
+    if (!node) continue;
     const adapter = findLoraNodeAdapter(node.class_type);
     if (!adapter) continue;
-    return adapter.readSnapshot(node);
+    groups.push({ nodeId, loras: adapter.readSnapshot(node) });
   }
-  return [];
+  return groups;
 }
 
 /**

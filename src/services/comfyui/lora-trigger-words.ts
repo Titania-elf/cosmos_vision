@@ -1,8 +1,8 @@
+import type { ComfyUILoraPreset, ComfyUISettings } from '@/constants/comfyui';
 import { normalizeLoraManagerName } from '@/services/comfyui/lora-adapter';
 import { requestLoraManagerPayload } from '@/services/comfyui/lora-manager-client';
-import { getActiveComfyUILoras, dedupeTriggerWords } from '@/services/comfyui/lora-presets';
+import { dedupeTriggerWords, getActiveComfyUILoraPreset } from '@/services/comfyui/lora-presets';
 import { normalizeComfyUIUrl } from '@/services/comfyui/parse';
-import type { ComfyUISettings } from '@/constants/comfyui';
 
 /**
  * ComfyUI-Lora-Manager 触发词接口
@@ -166,10 +166,32 @@ export async function resolveActiveComfyUILoraTriggerWords(
   settings: Pick<ComfyUISettings, 'url' | 'loraPresets'>,
   signal?: AbortSignal,
 ): Promise<string[]> {
-  const names = getActiveComfyUILoras(settings.loraPresets)
-    .filter(lora => lora.enabled && lora.name.trim())
-    .map(lora => lora.name.trim());
-  return resolveComfyUILoraTriggerWords(settings.url, names, signal);
+  return resolveComfyUILoraTriggerWordsForPresets(
+    settings,
+    [getActiveComfyUILoraPreset(settings.loraPresets)],
+    signal,
+  );
+}
+
+/**
+ * 解析若干 LoRA 预设组内全部已启用 LoRA 的触发词（多 LoRA 节点生图时调用）
+ * 任何非中断失败都静默降级为空词表，绝不阻断生图。
+ * @param settings ComfyUI 设置
+ * @param presets 本次实际生效的 LoRA 预设组列表
+ * @param signal 取消信号
+ * @returns 去重合并后的触发词列表
+ */
+export async function resolveComfyUILoraTriggerWordsForPresets(
+  settings: Pick<ComfyUISettings, 'url' | 'loraPresets'>,
+  presets: readonly ComfyUILoraPreset[],
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const names = presets.flatMap(preset =>
+    preset.loras
+      .filter(lora => lora.enabled && lora.name.trim())
+      .map(lora => lora.name.trim()),
+  );
+  return resolveComfyUILoraTriggerWords(settings.url, dedupeTriggerWords(names), signal);
 }
 
 /**

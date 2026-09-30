@@ -206,7 +206,9 @@ import TestImageGallery from '@/panel/components/TestImageGallery.vue';
 import { generateComfyUIImagesFromResolvedRequest } from '@/services/comfyui/api';
 import type { ComfyUIProgress } from '@/services/comfyui/progress-ws';
 import { formatLoraDisplayName, getActiveComfyUILoraPreset } from '@/services/comfyui/lora-presets';
-import { resolveActiveComfyUILoraTriggerWords } from '@/services/comfyui/lora-trigger-words';
+import { listEffectiveComfyUILoraPresets } from '@/services/comfyui/lora-node-bindings';
+import { resolveComfyUILoraTriggerWordsForPresets } from '@/services/comfyui/lora-trigger-words';
+import { getActiveComfyUIWorkflowJson } from '@/services/comfyui/workflow-presets';
 import {
   buildComfyUIResolvedRequest,
   type ComfyUILoraSnapshot,
@@ -417,13 +419,29 @@ function markAborted(): void {
 }
 
 /**
+ * 解析测试用 LoRA 触发词
+ * 覆盖按节点绑定真正生效的全部 LoRA 组，避免双采工作流里只带上激活组的触发词
+ * @param signal 取消信号
+ * @returns 触发词列表
+ */
+async function resolveTestLoraTriggerWords(signal: AbortSignal): Promise<string[]> {
+  const activePreset = getActiveComfyUILoraPreset(settings.comfyui.loraPresets);
+  const effectivePresets = listEffectiveComfyUILoraPresets(
+    getActiveComfyUIWorkflowJson(settings.comfyui.workflowPresets),
+    settings.comfyui.loraPresets,
+    activePreset,
+  );
+  return resolveComfyUILoraTriggerWordsForPresets(settings.comfyui, effectivePresets, signal);
+}
+
+/**
  * 执行直接提示词测试
  * @param session 当前测试会话
  * @returns 已解析的 ComfyUI 请求
  */
 async function runDirectModeTest(session: TestRequestSession): Promise<ComfyUIResolvedRequest> {
   const effectiveLoraPreset = getActiveComfyUILoraPreset(settings.comfyui.loraPresets);
-  const loraTriggerWords = await resolveActiveComfyUILoraTriggerWords(settings.comfyui, session.signal);
+  const loraTriggerWords = await resolveTestLoraTriggerWords(session.signal);
   return buildComfyUIResolvedRequest(
     settings.comfyui,
     settings.imagePromptPresets,
@@ -465,7 +483,7 @@ async function runLlmModeTest(session: TestRequestSession): Promise<ComfyUIResol
   llmRawResponse.value = result.rawText;
   const { output } = extractPromptLlmResult(result.rawText, settings.promptLlm, schemaFields);
   const effectiveLoraPreset = getActiveComfyUILoraPreset(settings.comfyui.loraPresets);
-  const loraTriggerWords = await resolveActiveComfyUILoraTriggerWords(settings.comfyui, session.signal);
+  const loraTriggerWords = await resolveTestLoraTriggerWords(session.signal);
   return buildComfyUIResolvedRequest(
     settings.comfyui,
     settings.imagePromptPresets,

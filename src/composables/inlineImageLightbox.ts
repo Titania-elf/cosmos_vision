@@ -160,6 +160,14 @@ function cloneComfyUIRequestSnapshot(snapshot: ComfyUIRequestSnapshot): ComfyUIR
     promptBindings: snapshot.promptBindings.map(item => ({ ...item })),
     seedValues: snapshot.seedValues.map(item => ({ ...item })),
     loras: snapshot.loras.map(lora => ({ name: lora.name, strength: lora.strength })),
+    ...(snapshot.loraNodes
+      ? {
+          loraNodes: snapshot.loraNodes.map(node => ({
+            nodeId: node.nodeId,
+            loras: node.loras.map(lora => ({ name: lora.name, strength: lora.strength })),
+          })),
+        }
+      : {}),
     ...(snapshot.workflowPresetName !== undefined ? { workflowPresetName: snapshot.workflowPresetName } : {}),
     ...(snapshot.loraPresetName !== undefined ? { loraPresetName: snapshot.loraPresetName } : {}),
     ...(snapshot.resolution ? { resolution: { ...snapshot.resolution } } : {}),

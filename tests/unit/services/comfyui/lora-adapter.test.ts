@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isSupportedLoraNode,
-  readLoraSnapshotsFromWorkflow,
+  readLoraNodeSnapshots,
   writeLoraPresetToNode,
 } from '@/services/comfyui/lora-adapter';
 import { applyActiveLoraPresetToWorkflowJson } from '@/services/comfyui/lora-presets';
@@ -27,10 +27,30 @@ describe('comfyui lora-adapter', () => {
   });
 
   it('extracts lora snapshot from workflow object', () => {
-    const loras = readLoraSnapshotsFromWorkflow(sampleWorkflow);
-    expect(loras).toHaveLength(1);
-    expect(loras[0].name).toBe('old_lora.safetensors');
-    expect(loras[0].strength).toBe(1.0);
+    const groups = readLoraNodeSnapshots(sampleWorkflow, ['10']);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].nodeId).toBe('10');
+    expect(groups[0].loras[0].name).toBe('old_lora.safetensors');
+    expect(groups[0].loras[0].strength).toBe(1.0);
+  });
+
+  it('only reads the requested nodes', () => {
+    const dualWorkflow = {
+      ...sampleWorkflow,
+      '56': {
+        class_type: 'Lora Loader (LoraManager)',
+        inputs: {
+          text: '',
+          loras: { __value__: [{ name: 'second.safetensors', strength: 0.5, active: true }] },
+        },
+      },
+    };
+
+    expect(readLoraNodeSnapshots(dualWorkflow, ['56'])).toEqual([
+      { nodeId: '56', loras: [{ name: 'second.safetensors', strength: 0.5 }] },
+    ]);
+    // 不存在或非 LoRA 节点的 ID 直接跳过，不抛错
+    expect(readLoraNodeSnapshots(dualWorkflow, ['404', '9'])).toEqual([]);
   });
 
   it('writes lora preset to workflow node', () => {

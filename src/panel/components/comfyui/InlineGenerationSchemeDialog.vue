@@ -27,7 +27,18 @@
           <div class="text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">
             分辨率：{{ formatResolution(snapshot.comfyui?.resolution) }}
           </div>
-          <div class="text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">
+          <!-- 双采工作流按节点分别列出，便于确认两个采样阶段各用了哪组 LoRA -->
+          <div
+            v-for="group in snapshotLoraGroups"
+            :key="group.nodeId"
+            class="text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)"
+          >
+            LoRA #{{ group.nodeId }}：{{ formatSnapshotLoras(group.loras) }}
+          </div>
+          <div
+            v-if="!snapshotLoraGroups.length"
+            class="text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)"
+          >
             LoRA：{{ formatSnapshotLoras(snapshot.comfyui?.loras) }}
           </div>
         </div>
@@ -186,6 +197,15 @@ const activeWorkflowPresetId = computed(() => comfyui.value.workflowPresets.acti
 const resolutionCombos = computed(() => sortResolutionCombos(comfyui.value.resolutionCombos));
 /** 当前工作流实际分辨率（读取失败或无尺寸节点时为 null） */
 const currentResolution = computed(() => readWorkflowResolution());
+
+/**
+ * 本图按节点记录的 LoRA 方案
+ * 仅多 LoRA 节点工作流才拆行展示，单节点快照沿用原来的一行汇总
+ */
+const snapshotLoraGroups = computed(() => {
+  const groups = props.snapshot?.comfyui?.loraNodes ?? [];
+  return groups.length > 1 ? groups : [];
+});
 
 /**
  * 读取当前激活工作流的首个分辨率目标尺寸

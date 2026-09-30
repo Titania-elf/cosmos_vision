@@ -5,6 +5,7 @@ import type { ImagePromptPresetSettings } from '@/constants/image-prompt';
 import {
   buildComfyUIResolvedRequest,
   buildComfyUIResolvedRequestFromPrompts,
+  type ComfyUILoraOverride,
 } from '@/services/comfyui/request';
 import { normalizeComfyUIUrl } from '@/services/comfyui/parse';
 import {
@@ -18,6 +19,7 @@ import { readAvatarFile } from '@/services/tavern-helper/avatar';
 import type {
   ComfyUIHistoryImage,
   ComfyUIImageBindingTarget,
+  ComfyUILoraNodeSnapshot,
   ComfyUILoraSnapshot,
   ComfyUIRequestSnapshot,
   ComfyUIResolvedRequest,
@@ -55,8 +57,10 @@ export interface ComfyUIRequestOptions {
 }
 
 export interface ComfyUIPromptsRequestOptions extends ComfyUIRequestOptions {
-  /** 回放或显式指定的 LoRA 快照列表；若提供则按此列表写入工作流，不再读取面板激活组 */
+  /** 回放或显式指定的扁平 LoRA 快照列表；全部写入首个 LoRA 节点，不再读取面板激活组 */
   loras?: readonly ComfyUILoraSnapshot[];
+  /** 按节点分组的回放快照；提供时优先于 loras，空数组表示不写入任何 LoRA 节点 */
+  loraNodes?: readonly ComfyUILoraNodeSnapshot[];
   /** 显式覆写的 LoRA 触发词；若提供则不再从远端解析 */
   loraTriggerWords?: readonly string[];
 }
@@ -101,17 +105,19 @@ export async function generateComfyUIImagesFromPrompts(
   prompts: ImagePromptPair,
   options: ComfyUIPromptsRequestOptions = {},
 ): Promise<ComfyUIPromptsGenerationResult> {
+  const loraOverride = resolveLoraOverrideOption(options);
+  // 触发词优先用调用方给定值，其次按本次回放的 LoRA 名解析，最后回退到面板激活组
   const loraTriggerWords = options.loraTriggerWords !== undefined
     ? options.loraTriggerWords
-    : (options.loras !== undefined
-        ? await resolveComfyUILoraTriggerWords(settings.url, options.loras.map(l => l.name), options.signal)
+    : (loraOverride !== undefined
+        ? await resolveComfyUILoraTriggerWords(settings.url, listOverrideLoraNames(options), options.signal)
         : await resolveActiveComfyUILoraTriggerWords(settings, options.signal));
 
   const resolvedRequest = buildComfyUIResolvedRequestFromPrompts(
     settings,
     prompts,
     loraTriggerWords,
-    options.loras,
+    loraOverride,
   );
   const imageBlobs = await generateComfyUIImagesFromResolvedRequest(
     settings,
@@ -123,6 +129,30 @@ export async function generateComfyUIImagesFromPrompts(
     requestSnapshot: resolvedRequest.snapshot,
     resolvedRequest,
   };
+}
+
+/**
+ * 将请求选项收敛为 LoRA 覆写目标
+ * 按节点分组快照优先于旧式扁平快照，二者都缺省时返回 undefined（按节点绑定解析）
+ * @param options 请求控制选项
+ * @returns LoRA 覆写目标或 undefined
+ */
+function resolveLoraOverrideOption(options: ComfyUIPromptsRequestOptions): ComfyUILoraOverride | undefined {
+  if (options.loraNodes !== undefined) return { kind: 'nodes', nodes: options.loraNodes };
+  if (options.loras !== undefined) return { kind: 'flat', loras: options.loras };
+  return undefined;
+}
+
+/**
+ * 读取本次回放涉及的 LoRA 名（用于解析触发词）
+ * @param options 请求控制选项
+ * @returns LoRA 名列表
+ */
+function listOverrideLoraNames(options: ComfyUIPromptsRequestOptions): string[] {
+  if (options.loraNodes !== undefined) {
+    return options.loraNodes.flatMap(node => node.loras.map(lora => lora.name));
+  }
+  return (options.loras ?? []).map(lora => lora.name);
 }
 
 /**

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  cloneInlinePromptSnapshot,
   closeInlineImageLightbox,
   handleInlineImageClick,
   inlineLightboxState,
@@ -11,6 +12,54 @@ const snapshot: InlinePromptSnapshot = {
   positivePrompt: '1girl',
   negativePrompt: 'lowres',
 };
+
+describe('cloneInlinePromptSnapshot', () => {
+  it('保留按节点分组的 LoRA 方案，回放时才能各写各的 LoRA 节点', () => {
+    const cloned = cloneInlinePromptSnapshot({
+      positivePrompt: '1girl',
+      negativePrompt: 'lowres',
+      imageSource: 'comfyui',
+      comfyui: {
+        endpoint: 'http://127.0.0.1:8188',
+        positivePrompt: '1girl',
+        negativePrompt: 'lowres',
+        imageOutputNodeId: '9',
+        promptBindings: [],
+        seedValues: [],
+        loras: [{ name: 'stage1', strength: 0.7 }],
+        loraNodes: [
+          { nodeId: '56', loras: [{ name: 'stage1', strength: 0.7 }] },
+          { nodeId: '71', loras: [] },
+        ],
+      },
+    });
+
+    expect(cloned.comfyui?.loras).toEqual([{ name: 'stage1', strength: 0.7 }]);
+    expect(cloned.comfyui?.loraNodes).toEqual([
+      { nodeId: '56', loras: [{ name: 'stage1', strength: 0.7 }] },
+      { nodeId: '71', loras: [] },
+    ]);
+  });
+
+  it('旧快照没有分组字段时克隆结果也不带该字段', () => {
+    const cloned = cloneInlinePromptSnapshot({
+      positivePrompt: '1girl',
+      negativePrompt: 'lowres',
+      imageSource: 'comfyui',
+      comfyui: {
+        endpoint: 'http://127.0.0.1:8188',
+        positivePrompt: '1girl',
+        negativePrompt: 'lowres',
+        imageOutputNodeId: '9',
+        promptBindings: [],
+        seedValues: [],
+        loras: [{ name: 'legacy', strength: 1 }],
+      },
+    });
+
+    expect(cloned.comfyui?.loraNodes).toBeUndefined();
+  });
+});
 
 describe('inlineImageLightbox 状态', () => {
   beforeEach(() => {

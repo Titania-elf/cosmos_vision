@@ -332,6 +332,191 @@ describe('comfyui request builder', () => {
     expect(resolved.snapshot.loras).toEqual([]);
   });
 
+  it('writes each bound node its own lora preset in a dual-sampler workflow', () => {
+    const settings = structuredClone(DEFAULT_SETTINGS.comfyui);
+    settings.workflowPresets.presets = [
+      {
+        id: 'preset-1',
+        name: 'Dual Sampler',
+        workflowJson: JSON.stringify({
+          '6': {
+            class_type: 'CLIPTextEncode',
+            inputs: { text: 'positive placeholder' },
+            _meta: { cosmosVision: { promptBindings: { text: 'positive' }, imageOutput: true } },
+          },
+          '56': {
+            class_type: 'Lora Loader (LoraManager)',
+            inputs: { text: '', loras: { __value__: [] } },
+          },
+          '71': {
+            class_type: 'Lora Loader (LoraManager)',
+            inputs: { text: '<lora:embedded:0.5>', loras: { __value__: [] } },
+            _meta: { cosmosVision: { loraBinding: { mode: 'fixed', presetId: 'lora-detail' } } },
+          },
+        }),
+        favoriteNodeIds: [],
+      },
+    ];
+    settings.workflowPresets.activePresetId = 'preset-1';
+    settings.loraPresets = {
+      activePresetId: 'lora-char',
+      presets: [
+        {
+          id: 'lora-char',
+          name: '角色A',
+          loras: [{ id: 'l1', name: 'char.safetensors', strength: 0.9, enabled: true }],
+        },
+        {
+          id: 'lora-detail',
+          name: '细节增强',
+          loras: [{ id: 'l2', name: 'detail.safetensors', strength: 0.5, enabled: true }],
+        },
+      ],
+    };
+
+    const resolved = buildComfyUIResolvedRequest(settings, DEFAULT_SETTINGS.imagePromptPresets, {
+      positivePrompt: '1girl',
+      negativePrompt: '',
+    });
+
+    expect(resolved.workflow['56'].inputs.text).toBe('<lora:char:0.9>');
+    expect(resolved.workflow['71'].inputs.text).toBe('<lora:detail:0.5>');
+    expect(resolved.snapshot.loras).toEqual([
+      { name: 'char', strength: 0.9 },
+      { name: 'detail', strength: 0.5 },
+    ]);
+    expect(resolved.snapshot.loraNodes).toEqual([
+      { nodeId: '56', loras: [{ name: 'char', strength: 0.9 }] },
+      { nodeId: '71', loras: [{ name: 'detail', strength: 0.5 }] },
+    ]);
+    expect(resolved.snapshot.loraPresetName).toBe('角色A / 细节增强');
+  });
+
+  it('leaves extra lora nodes untouched when only the first node follows the active preset', () => {
+    const settings = structuredClone(DEFAULT_SETTINGS.comfyui);
+    settings.workflowPresets.presets = [
+      {
+        id: 'preset-1',
+        name: 'Dual Sampler',
+        workflowJson: JSON.stringify({
+          '6': {
+            class_type: 'CLIPTextEncode',
+            inputs: { text: 'positive placeholder' },
+            _meta: { cosmosVision: { promptBindings: { text: 'positive' }, imageOutput: true } },
+          },
+          '56': {
+            class_type: 'Lora Loader (LoraManager)',
+            inputs: { text: '', loras: { __value__: [] } },
+          },
+          '71': {
+            class_type: 'Lora Loader (LoraManager)',
+            inputs: { text: '<lora:embedded:0.5>', loras: { __value__: [] } },
+          },
+        }),
+        favoriteNodeIds: [],
+      },
+    ];
+    settings.workflowPresets.activePresetId = 'preset-1';
+    settings.loraPresets = createLoraPreset('char.safetensors');
+
+    const resolved = buildComfyUIResolvedRequest(settings, DEFAULT_SETTINGS.imagePromptPresets, {
+      positivePrompt: '1girl',
+      negativePrompt: '',
+    });
+
+    expect(resolved.workflow['56'].inputs.text).toBe('<lora:char:1>');
+    expect(resolved.workflow['71'].inputs.text).toBe('<lora:embedded:0.5>');
+    // 未被写入的节点内嵌 LoRA 不计入快照，避免回放时凭空带上未注入的 LoRA
+    expect(resolved.snapshot.loras).toEqual([{ name: 'char', strength: 1 }]);
+    expect(resolved.snapshot.loraNodes).toEqual([{ nodeId: '56', loras: [{ name: 'char', strength: 1 }] }]);
+  });
+
+  it('replays node-scoped snapshot loras into the node they came from', () => {
+    const settings = structuredClone(DEFAULT_SETTINGS.comfyui);
+    settings.workflowPresets.presets = [
+      {
+        id: 'preset-1',
+        name: 'Dual Sampler',
+        workflowJson: JSON.stringify({
+          '6': {
+            class_type: 'CLIPTextEncode',
+            inputs: { text: 'positive placeholder' },
+            _meta: { cosmosVision: { promptBindings: { text: 'positive' }, imageOutput: true } },
+          },
+          '56': {
+            class_type: 'Lora Loader (LoraManager)',
+            inputs: { text: '<lora:leftover:1.0>', loras: { __value__: [] } },
+          },
+          '71': {
+            class_type: 'Lora Loader (LoraManager)',
+            inputs: { text: '', loras: { __value__: [] } },
+          },
+        }),
+        favoriteNodeIds: [],
+      },
+    ];
+    settings.workflowPresets.activePresetId = 'preset-1';
+    settings.loraPresets = createLoraPreset('panel_lora.safetensors');
+
+    const resolved = buildComfyUIResolvedRequest(
+      settings,
+      DEFAULT_SETTINGS.imagePromptPresets,
+      { positivePrompt: '1girl', negativePrompt: '' },
+      [],
+      undefined,
+      {
+        kind: 'nodes',
+        nodes: [
+          { nodeId: '56', loras: [{ name: 'stage1', strength: 0.7 }] },
+          { nodeId: '71', loras: [{ name: 'stage2', strength: 0.4 }] },
+        ],
+      },
+    );
+
+    expect(resolved.workflow['56'].inputs.text).toBe('<lora:stage1:0.7>');
+    expect(resolved.workflow['71'].inputs.text).toBe('<lora:stage2:0.4>');
+  });
+
+  it('leaves every node untouched when the snapshot recorded no injected lora', () => {
+    const settings = structuredClone(DEFAULT_SETTINGS.comfyui);
+    settings.workflowPresets.presets = [
+      {
+        id: 'preset-1',
+        name: 'Dual Sampler',
+        workflowJson: JSON.stringify({
+          '6': {
+            class_type: 'CLIPTextEncode',
+            inputs: { text: 'positive placeholder' },
+            _meta: { cosmosVision: { promptBindings: { text: 'positive' }, imageOutput: true } },
+          },
+          '56': {
+            class_type: 'Lora Loader (LoraManager)',
+            inputs: { text: '<lora:embedded:0.5>', loras: { __value__: [] } },
+          },
+        }),
+        favoriteNodeIds: [],
+      },
+    ];
+    settings.workflowPresets.activePresetId = 'preset-1';
+    settings.loraPresets = createLoraPreset('panel_lora.safetensors');
+
+    const resolved = buildComfyUIResolvedRequest(
+      settings,
+      DEFAULT_SETTINGS.imagePromptPresets,
+      { positivePrompt: '1girl', negativePrompt: '' },
+      [],
+      undefined,
+      { kind: 'nodes', nodes: [] },
+    );
+
+    // 分组为空表示本次没有注入任何 LoRA：保留节点内嵌 LoRA，且不前置触发词
+    expect(resolved.workflow['56'].inputs.text).toBe('<lora:embedded:0.5>');
+    expect(resolved.snapshot.loras).toEqual([]);
+    expect(resolved.snapshot.loraNodes).toEqual([]);
+    expect(resolved.snapshot.loraPresetName).toBe('未注入');
+    expect(resolved.snapshot.positivePrompt).toBe('1girl');
+  });
+
   it('injects preview export node when bound output node is non-output image node', async () => {
     const rawObjectInfo = {
       CLIPTextEncode: {
