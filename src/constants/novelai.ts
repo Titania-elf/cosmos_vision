@@ -1,5 +1,6 @@
 import type { ComfyUISettings, ImageSource } from '@/constants/comfyui';
 import type { ImagePromptPresetReferences, ImagePromptPresetSettings } from '@/constants/image-prompt';
+import type { NpcLibrarySettings } from '@/constants/npc-library';
 import type { NovelAIVibePresetSettings } from '@/constants/novelai-vibe';
 import type { PromptLlmMessagePresetSettings, PromptLlmSettings, PromptProfilesSettings } from '@/constants/prompt-llm';
 import type { RandomPresetPoolSettings } from '@/constants/random-preset-pool';
@@ -266,5 +267,6 @@ export interface CosmosVisionSettings {
   promptLlm: PromptLlmSettings;
   promptLlmMessagePresets: PromptLlmMessagePresetSettings;
   promptProfiles: PromptProfilesSettings;
+  npcLibrary: NpcLibrarySettings;
   randomPresetPools: RandomPresetPoolSettings;
 }

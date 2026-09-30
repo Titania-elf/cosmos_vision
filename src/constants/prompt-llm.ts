@@ -103,6 +103,10 @@ export interface PromptLlmSettings {
   ignoreUserMessagesInHistory: boolean;
   /** 是否自动收集角色与世界书信息注入 participant_context */
   autoCharacterInfo: boolean;
+  /** 是否启用 NPC 外观维护库,命中当前故事的 NPC 自动注入 participant_context */
+  useNpcLibrary: boolean;
+  /** 是否在 AI 消息生成后后台自动扫描并更新 NPC 库(默认关) */
+  autoUpdateNpcLibrary: boolean;
   /** 是否优先 JSON Schema 解析(公共:所有生图渠道共享) */
   preferJsonSchemaExtraction: boolean;
   /** 正面提示词 JSON 字段名 */

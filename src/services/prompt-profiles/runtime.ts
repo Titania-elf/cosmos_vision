@@ -10,9 +10,12 @@ import type {
   PromptProfilesSettings,
 } from '@/constants/novelai';
 import { getPromptPersonTemplateEntryKind } from '@/constants/novelai';
+import { NPC_LIBRARY_GLOBAL_GROUP, type NpcLibraryEntry } from '@/constants/npc-library';
 import type { PromptLlmRuntimeContent } from '@/services/prompt-llm/message-preset';
 import { buildAutoParticipantRuntimeContent, safeRenderPromptTemplate } from '@/services/prompt-profiles/auto-runtime';
 import { readChatProfiles } from '@/services/prompt-profiles/chat-store';
+import { readNpcLibraryEntries } from '@/services/npc-library/store';
+import { getCurrentCharacterKey } from '@/services/tavern-helper/prompt-profiles-context';
 import { resolvePromptPersonTemplateEntry } from '@/services/tavern-helper/prompt-profiles-sources';
 
 interface PromptPersonMatchContext {
@@ -112,34 +115,86 @@ export async function buildPromptProfilesRuntimeContent(
 export async function buildPromptLlmRuntimeContent(
   context: PromptLlmContext,
   promptProfiles: PromptProfilesSettings,
-  settings?: Pick<PromptLlmSettings, 'historyFloorCount' | 'ignoreUserMessagesInHistory' | 'autoCharacterInfo'>,
+  settings?: Pick<
+    PromptLlmSettings,
+    'historyFloorCount' | 'ignoreUserMessagesInHistory' | 'autoCharacterInfo' | 'useNpcLibrary'
+  >,
 ): Promise<PromptLlmRuntimeContent> {
-  if (settings?.autoCharacterInfo) {
-    const [autoResult, profilesResult] = await Promise.all([
-      buildAutoParticipantRuntimeContent(context, settings),
-      buildPromptProfilesRuntimeContent(context, promptProfiles),
-    ]);
+  const [autoResult, profilesResult] = await Promise.all([
+    settings?.autoCharacterInfo ? buildAutoParticipantRuntimeContent(context, settings) : Promise.resolve(null),
+    buildPromptProfilesRuntimeContent(context, promptProfiles),
+  ]);
 
-    const combinedParticipantContent = [autoResult.participantContent, profilesResult.participantContent]
-      .map(content => content.trim())
-      .filter(Boolean)
-      .join('\n\n');
+  // NPC 库作为第三注入源：命中当前故事的 NPC，与聊天档案按名字去重（聊天档案优先）
+  const matchedNames = profilesResult.matchedProfiles.map(matched => matched.person.name);
+  const npcContent =
+    settings?.useNpcLibrary === false ? '' : await buildNpcLibraryParticipants(context.historyParagraphs, matchedNames);
 
-    return {
-      historyContent: autoResult.historyContent,
-      participantContent: combinedParticipantContent,
-      focusParagraphContent: autoResult.focusParagraphContent,
-      specialRequestContent: buildSpecialRequestContent(context.specialRequest),
-    };
-  }
+  const participantContent = [autoResult?.participantContent, profilesResult.participantContent, npcContent]
+    .map(content => (content ?? '').trim())
+    .filter(Boolean)
+    .join('\n\n');
 
-  const result = await buildPromptProfilesRuntimeContent(context, promptProfiles);
+  const base = autoResult ?? profilesResult;
   return {
-    historyContent: result.historyContent,
-    participantContent: result.participantContent,
-    focusParagraphContent: result.focusParagraphContent,
+    historyContent: base.historyContent,
+    participantContent,
+    focusParagraphContent: base.focusParagraphContent,
     specialRequestContent: buildSpecialRequestContent(context.specialRequest),
   };
+}
+
+/**
+ * 命中并渲染当前故事下的 NPC 库条目
+ * @param contextParagraphs 焦点上下文段落
+ * @param excludeNames 已由聊天档案命中的人物名（避免重复注入）
+ * @returns NPC 参与者文本
+ */
+export async function buildNpcLibraryParticipants(
+  contextParagraphs: string[],
+  excludeNames: string[] = [],
+): Promise<string> {
+  const entries = readNpcLibraryEntries();
+  if (!entries.length) return '';
+  const groupKey = getCurrentCharacterKey();
+  const excluded = new Set(excludeNames.map(name => name.trim().toLowerCase()).filter(Boolean));
+  const persons = entries
+    .filter(entry => isNpcEntryInCurrentScope(entry, groupKey))
+    .filter(entry => !excluded.has(entry.name.trim().toLowerCase()))
+    .map(npcEntryToPromptPerson);
+  if (!persons.length) return '';
+  const matched = await matchPromptProfiles(contextParagraphs, persons);
+  return buildParticipantContext(matched);
+}
+
+/**
+ * 判断 NPC 库条目是否属于当前故事作用域
+ * @param entry NPC 库条目
+ * @param groupKey 当前角色卡 key
+ * @returns 是否应参与当前故事的注入
+ */
+function isNpcEntryInCurrentScope(entry: NpcLibraryEntry, groupKey: string | null): boolean {
+  if (entry.group === NPC_LIBRARY_GLOBAL_GROUP) return true;
+  return groupKey !== null && entry.group === groupKey;
+}
+
+/**
+ * 把 NPC 库条目转换为人物配置（库 → 人物，供匹配渲染与「导入到当前聊天」复用）
+ * @param entry NPC 库条目
+ * @returns 人物配置
+ */
+export function npcEntryToPromptPerson(entry: NpcLibraryEntry): PromptPerson {
+  const person = createPromptPerson('character', entry.name, [entry.name, ...entry.aliases]);
+  person.id = entry.id;
+  person.enabled = entry.enabled;
+  person.insertMode = entry.insertMode;
+  person.staticTags = entry.staticTags;
+  const note = entry.appearanceNote.trim();
+  if (note) {
+    const closingIndex = Math.max(person.templateEntries.length - 1, 0);
+    person.templateEntries.splice(closingIndex, 0, createCustomPromptPersonTemplateEntry('外观补充', note));
+  }
+  return person;
 }
 
 /**

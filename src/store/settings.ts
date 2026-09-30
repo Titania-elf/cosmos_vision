@@ -12,6 +12,7 @@ import {
   DEFAULT_SETTINGS,
 } from '@/constants/default-settings';
 import { type ImagePromptPreset, type ImagePromptPresetSettings } from '@/constants/image-prompt';
+import { type NpcLibrarySettings } from '@/constants/npc-library';
 import {
   DEFAULT_IMAGE_PROMPT_VIBE_INFORMATION_EXTRACTED,
   DEFAULT_IMAGE_PROMPT_VIBE_REFERENCE_STRENGTH,
@@ -41,6 +42,7 @@ import {
   PROMPT_PERSON_INSERT_MODES,
   PROMPT_PERSON_KINDS,
   type PromptLlmMessagePresetSettings,
+  type PromptLlmSettings,
   type PromptProfilesSettings,
 } from '@/constants/novelai';
 import { normalizePromptLlmMessagePresets } from '@/services/prompt-llm/message-preset';
@@ -239,6 +241,24 @@ const promptProfilesSettingsSchema = z.object({
   profiles: z.array(promptPersonSchema),
 });
 
+const npcLibraryEntrySchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  group: z.string(),
+  aliases: z.array(z.string()),
+  enabled: z.boolean(),
+  locked: z.boolean().default(false),
+  insertMode: z.enum(PROMPT_PERSON_INSERT_MODES),
+  staticTags: z.string(),
+  appearanceNote: z.string().default(''),
+  updatedAt: z.number().default(0),
+  sourceNote: z.string().default(''),
+});
+
+const npcLibrarySettingsSchema = z.object({
+  entries: z.array(npcLibraryEntrySchema),
+});
+
 const randomPresetPoolSchema = z.object({
   id: z.string().min(1),
   name: z.string().default(DEFAULT_PRESET_NAME),
@@ -296,6 +316,7 @@ const cosmosVisionSettingsSchema = z.object({
   promptLlm: promptLlmSettingsSchema,
   promptLlmMessagePresets: promptLlmMessagePresetSettingsSchema,
   promptProfiles: promptProfilesSettingsSchema,
+  npcLibrary: npcLibrarySettingsSchema,
   randomPresetPools: randomPresetPoolSettingsSchema,
 });
 
@@ -446,6 +467,7 @@ function recoverSettings(value: unknown): CosmosVisionSettings {
     promptLlm: recoverPromptLlmSettings(record.promptLlm),
     promptLlmMessagePresets: recoverPromptLlmMessagePresets(record.promptLlmMessagePresets),
     promptProfiles: recoverPromptProfilesSettings(record.promptProfiles),
+    npcLibrary: recoverNpcLibrarySettings(record.npcLibrary),
     randomPresetPools: recoverRandomPresetPoolsSettings(record.randomPresetPools),
   };
 }
@@ -612,6 +634,15 @@ function recoverPromptLlmMessagePresets(value: unknown): PromptLlmMessagePresetS
  */
 function recoverPromptProfilesSettings(value: unknown): PromptProfilesSettings {
   return parseField(promptProfilesSettingsSchema, value, DEFAULT_SETTINGS.promptProfiles);
+}
+
+/**
+ * 从异常配置中恢复 NPC 库设置
+ * @param value 原始 NPC 库设置
+ * @returns 可安全使用的 NPC 库设置
+ */
+function recoverNpcLibrarySettings(value: unknown): NpcLibrarySettings {
+  return parseField(npcLibrarySettingsSchema, value, DEFAULT_SETTINGS.npcLibrary);
 }
 
 /**
@@ -842,6 +873,29 @@ export const useSettingsStore = defineStore('cosmos_vision_settings', () => {
     persist(savedSettings);
   }
 
+  /**
+   * 即时应用 NPC 库变更并立即持久化
+   * NPC 库按运行配置管理:草稿与已应用配置同步更新并立即落盘,
+   * 避免忘记「应用更改」导致改动丢失,或运行时读到旧值
+   * @param value 新的 NPC 库设置
+   */
+  function applyNpcLibrarySettings(value: NpcLibrarySettings): void {
+    settings.npcLibrary = value;
+    savedSettings.npcLibrary = _.cloneDeep(value);
+    persist(savedSettings);
+  }
+
+  /**
+   * 即时应用 NPC 库相关的 promptLlm 开关(自动注入 / 自动更新)并立即持久化
+   * 这两个开关在 NPC 库页即时生效,不走「应用更改」草稿流程
+   * @param patch 需要更新的开关子集
+   */
+  function applyNpcLibraryToggles(patch: Partial<Pick<PromptLlmSettings, 'useNpcLibrary' | 'autoUpdateNpcLibrary'>>): void {
+    Object.assign(settings.promptLlm, patch);
+    Object.assign(savedSettings.promptLlm, patch);
+    persist(savedSettings);
+  }
+
   return {
     settings,
     savedSettings,
@@ -855,5 +909,7 @@ export const useSettingsStore = defineStore('cosmos_vision_settings', () => {
     stageImportedSettings,
     persistSavedSettings,
     applyLoraPresetSettings,
+    applyNpcLibrarySettings,
+    applyNpcLibraryToggles,
   };
 });

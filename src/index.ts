@@ -6,6 +6,7 @@ import { DARK_CLASS } from '@/constants/default-settings';
 import { cosmosPrimePt } from '@/services/primevue/primevue-pt';
 import { cosmosPrimePreset } from '@/services/primevue/primevue-theme';
 import { syncThemeColorToPrimary } from '@/services/primevue/theme-adapter';
+import { startNpcLibraryAutoUpdate } from '@/services/npc-library/auto-update';
 import { bindChatProfilesPrefill } from '@/services/prompt-profiles/chat-prefill';
 import { whenSillyTavernReady } from '@/services/sillytavern/theme';
 import PrimeVue from 'primevue/config';
@@ -55,6 +56,8 @@ $(async () => {
   app.mount($container[0]);
   // 新聊天预填空白人物档案（预链角色卡/人设资料条目，静默幂等）
   bindChatProfilesPrefill();
+  // NPC 库后台自动更新（总开关默认关，仅注册监听，运行时按需读取）
+  startNpcLibraryAutoUpdate();
 });
 
 // 使用命名空间 + 先 off 解绑：防止 HMR 或重复注入导致多次 unmount

@@ -176,6 +176,7 @@
               :tutorial-node-id="tutorial.isActive ? tutorial.currentStep.comfyuiDemoNodeId : null"
             />
             <PromptProfilesTab v-else-if="activeTab === 'prompt-profiles'" v-model:kind="promptProfilesSubTab" />
+            <NpcLibraryTab v-else-if="activeTab === 'npc-library'" />
             <StatsTab v-else-if="activeTab === 'stats'" />
             <KeepAlive>
               <PromptLlmTab v-if="activeTab === 'prompt-llm'" :sub-tab="promptLlmSubTab" />
@@ -296,6 +297,7 @@ import SidebarRailToggle from '@/panel/components/SidebarRailToggle.vue';
 import ComfyUITab from '@/panel/tabs/ComfyUITab.vue';
 import MainTab from '@/panel/tabs/MainTab.vue';
 import NovelAITab from '@/panel/tabs/NovelAITab.vue';
+import NpcLibraryTab from '@/panel/tabs/NpcLibraryTab.vue';
 import PromptLlmTab from '@/panel/tabs/PromptLlmTab.vue';
 import PromptProfilesTab from '@/panel/tabs/PromptProfilesTab.vue';
 import StatsTab from '@/panel/tabs/StatsTab.vue';
@@ -312,7 +314,7 @@ import {
   FOCUSED_PARAGRAPH_TEXT_KEY,
 } from '@/composables/useFocusedParagraphInput';
 
-type NavValue = 'main' | 'novelai' | 'comfyui' | 'prompt-llm' | 'prompt-profiles' | 'stats';
+type NavValue = 'main' | 'novelai' | 'comfyui' | 'prompt-llm' | 'prompt-profiles' | 'npc-library' | 'stats';
 type ConfirmAction = 'close' | 'discard';
 
 interface SectionInfo {
@@ -348,6 +350,7 @@ const NAV_ITEMS = [
   { value: 'comfyui', label: 'ComfyUI', icon: '' },
   { value: 'prompt-llm', label: 'LLM', icon: 'fa-solid fa-wand-magic-sparkles' },
   { value: 'prompt-profiles', label: '人物', icon: 'fa-solid fa-user-gear' },
+  { value: 'npc-library', label: 'NPC库', icon: 'fa-solid fa-users' },
   { value: 'stats', label: '统计', icon: 'fa-solid fa-chart-column' },
 ] as const satisfies ReadonlyArray<{ value: NavValue; label: string; icon: string }>;
 

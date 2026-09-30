@@ -361,10 +361,14 @@ describe('auto-runtime service', () => {
       vi.spyOn(promptProfilesSources, 'getPromptPersonUserPersonaDescription').mockReturnValue('Player Persona');
       vi.spyOn(wiModule, 'getWorldInfoPrompt').mockResolvedValue(createMockWIPromptResult('Magic Realm'));
 
-      const settings: Pick<PromptLlmSettings, 'historyFloorCount' | 'ignoreUserMessagesInHistory' | 'autoCharacterInfo'> = {
+      const settings: Pick<
+        PromptLlmSettings,
+        'historyFloorCount' | 'ignoreUserMessagesInHistory' | 'autoCharacterInfo' | 'useNpcLibrary'
+      > = {
         historyFloorCount: 2,
         ignoreUserMessagesInHistory: false,
         autoCharacterInfo: true,
+        useNpcLibrary: false,
       };
 
       const restore = stageChatProfiles();

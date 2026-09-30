@@ -11,6 +11,7 @@ import {
   type ImageSource,
 } from '@/constants/comfyui';
 import { createImagePromptPresetSettings } from '@/constants/image-prompt';
+import { createNpcLibrarySettings } from '@/constants/npc-library';
 import { createRandomPresetPoolSettings } from '@/constants/random-preset-pool';
 import {
   createNovelAIVibePresetSettings,
@@ -167,6 +168,8 @@ export const DEFAULT_SETTINGS: CosmosVisionSettings = {
     historyFloorCount: 2,
     ignoreUserMessagesInHistory: false,
     autoCharacterInfo: false,
+    useNpcLibrary: true,
+    autoUpdateNpcLibrary: false,
     preferJsonSchemaExtraction: false,
     positivePromptJsonField: DEFAULT_PROMPT_LLM_OUTPUT_FIELDS.positive,
     negativePromptJsonField: DEFAULT_PROMPT_LLM_OUTPUT_FIELDS.negative,
@@ -187,5 +190,6 @@ export const DEFAULT_SETTINGS: CosmosVisionSettings = {
   promptProfiles: {
     profiles: [],
   },
+  npcLibrary: createNpcLibrarySettings(),
   randomPresetPools: createRandomPresetPoolSettings(),
 };
