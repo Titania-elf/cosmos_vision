@@ -2,6 +2,7 @@ import '@/global.css';
 import '@/styles/inline-image.css';
 import '@/styles/inline-lightbox.css';
 import App from '@/App.vue';
+import { installCosmosVisionApi } from '@/api';
 import { DARK_CLASS } from '@/constants/default-settings';
 import { cosmosPrimePt } from '@/services/primevue/primevue-pt';
 import { cosmosPrimePreset } from '@/services/primevue/primevue-theme';
@@ -58,6 +59,8 @@ $(async () => {
   bindChatProfilesPrefill();
   // NPC 库后台自动更新（总开关默认关，仅注册监听，运行时按需读取）
   startNpcLibraryAutoUpdate();
+  // 挂载对外 API 并派发 cosmos-vision:api-ready（幂等）
+  installCosmosVisionApi();
 });
 
 // 使用命名空间 + 先 off 解绑：防止 HMR 或重复注入导致多次 unmount
