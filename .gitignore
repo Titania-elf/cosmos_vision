@@ -24,5 +24,9 @@ components.d.ts
 /.trellis
 /.gemini
 /.grok
+/.zcode
 AGENTS.md
 CLAUDE.md
+
+# 词表拉取脚本的产物：可再生产物，只供本地校验，不入库
+/scripts/out/
