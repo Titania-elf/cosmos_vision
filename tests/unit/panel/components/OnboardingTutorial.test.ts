@@ -12,7 +12,7 @@ const mockSelectionStep: TutorialStep = {
   title: '选择主要生图图源',
   description: '请选择你想主要使用的生图后端',
   scene: { kind: 'selection' },
-  target: { selectors: ['body'] },
+  target: { selectors: ['body'], missingText: '当前页面未找到图像来源字段，你仍可继续教程。' },
 };
 
 describe('OnboardingTutorial 选择界面与开发者入口', () => {

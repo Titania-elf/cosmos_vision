@@ -34,7 +34,7 @@ describe('requestTavernHelperGenerateRaw 取消控制', () => {
 
   it('缺省 generation_id 时按本次请求 ID 终止', async () => {
     const controller = new AbortController();
-    const generateRaw = vi.fn(() => new Promise(() => {}));
+    const generateRaw = vi.fn((_config: TavernHelperGenerateRawConfig) => new Promise(() => {}));
     const pending = requestTavernHelperGenerateRaw(
       createTavernHelper(generateRaw),
       { ordered_prompts: ['hi'] },
