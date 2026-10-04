@@ -22,6 +22,11 @@ import {
   findRenderContainerAfter,
   removeRenderContainer,
 } from '@/services/inline-image/cv-render-container';
+import {
+  collectDetachedMountFloors,
+  createMountLivenessObserver,
+  type MountLivenessObserver,
+} from '@/services/inline-image/mount-liveness';
 import { getCurrentInlineFavoriteScope } from '@/services/sillytavern/chat-context';
 import { ensureSlotShortcodeOnParagraph, resolveParagraphSlotId } from '@/services/inline-image/slot-bind';
 import { newSlotId, parseSlotIds, removeSlotShortcode } from '@/services/inline-image/slot-shortcode';
@@ -130,6 +135,8 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
   let started = false;
   let chain: Promise<void> = Promise.resolve();
   const floorTailAnchors = new Map<string, HTMLElement>();
+  /** 挂载容器被打散时的兜底观察器 */
+  let mountLiveness: MountLivenessObserver | null = null;
 
   const onChatLoaded = () => scheduleRestore();
   const onMoreMessages = () => scheduleJob({ kind: 'audit' });
@@ -234,6 +241,7 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
     started = true;
     disposed = false;
     bindEvents();
+    watchMountLiveness();
     scheduleRestore();
   }
 
@@ -245,6 +253,7 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
     sessionRestored = false;
     started = false;
     unbindEvents();
+    unwatchMountLiveness();
     removeAllRenderContainers();
     runtimes.value = [];
     clearAllGallerySessions();
@@ -433,6 +442,47 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
       event_types.MESSAGE_SWIPED,
     ]) {
       eventSource.removeListener(event, onMessageFloor);
+    }
+  }
+
+  /**
+   * 开始监听挂载容器活性
+   *
+   * 有扩展会用 ST 的 updateMessageBlock（或直接给 .mes_text 赋 innerHTML）整块重绘消息，
+   * 把寄生在 .mes_text 里的 cv-render 连根移除，而这条路径不派发任何 ST 事件，
+   * 只靠上面的 ST 事件无法发现，画廊会就此消失且不再回来。这里用 DOM 观察兜底。
+   */
+  function watchMountLiveness(): void {
+    if (mountLiveness || disposed) return;
+    mountLiveness = createMountLivenessObserver({
+      resolveRoot: () => document.querySelector('#chat'),
+      collectDetachedFloors: () =>
+        collectDetachedMountFloors(runtimes.value, messageId =>
+          document.querySelector(`#chat > .mes[mesid="${messageId}"]`),
+        ),
+      onDetached: healDetachedFloors,
+    });
+  }
+
+  /**
+   * 停止监听挂载容器活性
+   */
+  function unwatchMountLiveness(): void {
+    mountLiveness?.disconnect();
+    mountLiveness = null;
+  }
+
+  /**
+   * 重建被打散楼层的画廊
+   * @param messageIds 被打散的楼层号
+   */
+  function healDetachedFloors(messageIds: number[]): void {
+    // 恢复未完成时 session 还是空的，重建会误伤 slot；等 rerenderAll 收尾即可
+    if (disposed || !sessionRestored) return;
+    for (const messageId of messageIds) {
+      // 先摘掉已失效的 runtime，免得同一楼被反复判定为被打散而重复排队
+      dropFloorRuntime(messageId);
+      scheduleJob({ kind: 'floor', messageId });
     }
   }
 
