@@ -20,7 +20,7 @@ import {
 import { getComfyUIWorkflowValidationError, normalizeComfyUIUrl, parseComfyUIWorkflow } from '@/services/comfyui/parse';
 import { applyModelMatch } from '@/services/comfyui/model-loaders';
 import { applySeedModes } from '@/services/comfyui/seed-runtime';
-import { getCachedComfyUIObjectInfo } from '@/services/comfyui/object-info';
+import { fetchComfyUIObjectInfo, getCachedComfyUIObjectInfo } from '@/services/comfyui/object-info';
 import { getActiveComfyUIWorkflowJson, getActiveComfyUIWorkflowPreset } from '@/services/comfyui/workflow-presets';
 import { listResolutionTargets } from '@/services/comfyui/resolution-combos';
 import { ensureImageExportNode } from '@/services/comfyui/export-node';
@@ -118,6 +118,27 @@ function isFlatLoraOverride(
 }
 
 /**
+ * 解析待存入快照的 LoRA 预设组 ID
+ * 只有指向设置内真实预设组时才记录；回放/临时合成的组一律不记录，
+ * 否则重新生图时会按组 ID 展开，把按节点绑定或回放快照压平
+ * @param effectiveLoraPreset 生效的 LoRA 预设组
+ * @param loraOverride 传入的显式覆写（预设组 / 扁平快照 / 带标记覆写）
+ * @returns 真实预设组 ID，合成组或无显式组时返回 undefined
+ */
+function resolveSnapshotLoraPresetId(
+  effectiveLoraPreset: ComfyUILoraPreset,
+  loraOverride?: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[] | ComfyUILoraOverride,
+): string | undefined {
+  if (!loraOverride) return effectiveLoraPreset.id;
+  if (isTaggedLoraOverride(loraOverride)) {
+    // 带标记的覆写里只有 kind='preset' 指向真实设置组，flat / nodes 均为合成组
+    return loraOverride.kind === 'preset' ? loraOverride.preset.id : undefined;
+  }
+  if (isFlatLoraOverride(loraOverride)) return undefined;
+  return loraOverride.id;
+}
+
+/**
  * 按共享生图预设解析并构建 ComfyUI 最终请求
  * @param settings ComfyUI 设置
  * @param presetSettings 共享生图提示词预设
@@ -127,14 +148,14 @@ function isFlatLoraOverride(
  * @param loraOverride 显式指定的 LoRA 覆写（预设组 / 扁平快照 / 按节点分组快照）；缺省按节点绑定解析
  * @returns 可直接发送的工作流与快照
  */
-export function buildComfyUIResolvedRequest(
+export async function buildComfyUIResolvedRequest(
   settings: ComfyUISettings,
   presetSettings: ImagePromptPresetSettings,
   prompts: ImagePromptPair,
   loraTriggerWords: readonly string[] = [],
   presetIds?: { positive: string; negative: string },
   loraOverride?: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[] | ComfyUILoraOverride,
-): ComfyUIResolvedRequest {
+): Promise<ComfyUIResolvedRequest> {
   const references = presetIds
     ? { positivePromptPresetId: presetIds.positive, negativePromptPresetId: presetIds.negative }
     : settings;
@@ -147,20 +168,20 @@ export function buildComfyUIResolvedRequest(
 }
 
 /**
- * 使用最终正负提示词构建 ComfyUI 请求
+ * 使用最终正负提示词构建 ComfyUI 请求（若 object_info 缓存 miss 则在线补拉，失败则降级）
  * @param settings ComfyUI 设置
  * @param prompts 已完成拼接的正负提示词
  * @param loraTriggerWords 本次生效 LoRA 的触发词
  * @param loraOverride 显式指定的 LoRA 覆写（预设组 / 旧扁平快照 / 按节点分组快照）；缺省按节点绑定解析
  * @returns 可直接发送的工作流与快照
  */
-export function buildComfyUIResolvedRequestFromPrompts(
+export async function buildComfyUIResolvedRequestFromPrompts(
   settings: ComfyUISettings,
   prompts: ImagePromptPair,
   loraTriggerWords: readonly string[] = [],
   loraOverride?: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[] | ComfyUILoraOverride,
-): ComfyUIResolvedRequest {
-  const objectInfo = getCachedComfyUIObjectInfo(settings.url);
+): Promise<ComfyUIResolvedRequest> {
+  const objectInfo = getCachedComfyUIObjectInfo(settings.url) ?? await fetchComfyUIObjectInfo(settings.url).catch(() => null);
   const workflowJson = getActiveComfyUIWorkflowJson(settings.workflowPresets);
   const source = parseAndValidateWorkflow(workflowJson, objectInfo);
   const { positivePrompt, negativePrompt } = requirePromptPair(prompts);
@@ -185,6 +206,9 @@ export function buildComfyUIResolvedRequestFromPrompts(
     loraPlan.assignments.map(assignment => assignment.nodeId),
   );
   const resolution = readWorkflowResolution(workflow);
+  // 记录指向真实设置组的 ID，供「编辑 tag 后重新生图」弹窗回填；合成组不记录
+  const effectiveLoraPreset = resolveEffectiveLoraPreset(settings, loraOverride);
+  const loraPresetId = resolveSnapshotLoraPresetId(effectiveLoraPreset, loraOverride);
   stripCosmosVisionMeta(workflow);
 
   return {
@@ -203,6 +227,7 @@ export function buildComfyUIResolvedRequestFromPrompts(
       workflowPresetName: getActiveComfyUIWorkflowPreset(settings.workflowPresets).name,
       loraPresetName: summarizeLoraPresetNames(loraPlan.assignments),
       resolution,
+      ...(loraPresetId ? { loraPresetId } : {}),
     },
   };
 }

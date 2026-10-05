@@ -238,6 +238,8 @@ export interface ComfyUIRequestSnapshot {
   loraPresetName?: string;
   /** 生图时工作流的分辨率（旧快照可能缺失） */
   resolution?: { width: number; height: number };
+  /** 生图时实际生效的真实 LoRA 预设组 ID，回放列表合成的临时组不记录 */
+  loraPresetId?: string;
 }
 
 /** ComfyUI 已解析请求 */
