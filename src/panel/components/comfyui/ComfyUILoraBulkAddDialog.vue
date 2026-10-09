@@ -48,6 +48,11 @@
           <span class="flex size-4 shrink-0 items-center justify-center rounded-(--cv-space-3xs)" :class="option.added || selectedIds.has(option.value) ? 'bg-(--cvp-primary-color)' : 'border-(length:--cv-border-width) border-solid border-(--cv-outline-variant)'">
             <i v-if="option.added || selectedIds.has(option.value)" class="fa-solid fa-check text-(length:--cv-font-size-xs) text-(--cvp-primary-contrast-color)" aria-hidden="true" />
           </span>
+          <ComfyUILoraOptionThumb
+            :comfyui-url="props.comfyuiUrl"
+            :lora-name="option.value"
+            aria-hidden="true"
+          />
           <span
             class="min-w-0 flex-1 overflow-hidden font-mono text-(length:--cv-font-size-xs) text-ellipsis whitespace-nowrap"
             :class="option.added ? 'text-(--cv-on-surface-variant)' : 'text-(--cv-on-surface)'"
@@ -84,16 +89,19 @@
 
 <script setup lang="ts">
 import type { ComfyUILoraSetting } from '@/constants/comfyui';
+import ComfyUILoraOptionThumb from '@/panel/components/comfyui/ComfyUILoraOptionThumb.vue';
 
 /** 弹窗尺寸 */
 const DIALOG_STYLE = {
-  width: '26rem',
+  width: '30rem',
   maxWidth: 'calc(100vw - 2rem)',
 } as const;
 
 const visible = defineModel<boolean>('visible', { required: true });
 
 const props = defineProps<{
+  /** ComfyUI 服务地址（用于按 LoRA 拉取预览图） */
+  comfyuiUrl: string;
   /** 拉取到的 LoRA 名称选项 */
   options: { value: string; label: string }[];
   /** 当前预设组已有的 LoRA 条目（判定已添加） */

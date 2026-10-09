@@ -174,6 +174,7 @@
     />
     <ComfyUILoraBulkAddDialog
       v-model:visible="isBulkAddVisible"
+      :comfyui-url="props.comfyuiUrl"
       :options="props.loraOptions"
       :existing-loras="activePreset?.loras ?? []"
       @confirm="addLorasBulk"
