@@ -35,12 +35,12 @@
         <label
           v-for="option in filteredOptions"
           :key="option.value"
-          class="flex cursor-pointer items-center gap-(--cv-space-md) rounded-(--cv-radius-sm) px-(--cv-space-lg) py-(--cv-space-xs) transition-colors duration-150"
+          class="relative flex cursor-pointer items-center gap-(--cv-space-md) rounded-(--cv-radius-sm) px-(--cv-space-lg) py-(--cv-space-xs) transition-colors duration-150"
           :class="option.added ? 'pointer-events-none opacity-45' : 'hover:bg-(--cv-surface-container-highest)'"
         >
           <input
             type="checkbox"
-            class="sr-only"
+            class="cv-lora-bulk-check-input"
             :checked="selectedIds.has(option.value)"
             :disabled="option.added"
             @change="toggleOption(option.value)"
@@ -178,10 +178,45 @@ function confirm(): void {
   visible.value = false;
 }
 
-watch(visible, opened => {
-  if (opened) {
-    selectedIds.value = new Set();
-    searchKeyword.value = '';
-  }
-});
+/*
+ * 打开时的页面滚动位置。宿主 html 带 -webkit-transform，Dialog 遮罩只能绝对定位、
+ * 无法锚定视口（见 primevue-pt 的 absolute!），页面一旦被滚动，整个弹窗会跟着上移，
+ * 而 ST 其余部分（body overflow:hidden）纹丝不动。这里记录位置并即时还原。
+ */
+const lockedPageScroll = { x: 0, y: 0 };
+
+/** 页面滚动被改动时还原到打开弹窗时的位置 */
+function restorePageScroll(): void {
+  if (window.scrollX === lockedPageScroll.x && window.scrollY === lockedPageScroll.y) return;
+  window.scrollTo(lockedPageScroll.x, lockedPageScroll.y);
+}
+
+/** 记录当前位置并开始监听页面滚动 */
+function lockPageScroll(): void {
+  lockedPageScroll.x = window.scrollX;
+  lockedPageScroll.y = window.scrollY;
+  window.addEventListener('scroll', restorePageScroll);
+}
+
+/** 停止监听页面滚动 */
+function unlockPageScroll(): void {
+  window.removeEventListener('scroll', restorePageScroll);
+}
+
+onUnmounted(unlockPageScroll);
+
+watch(
+  visible,
+  opened => {
+    if (opened) {
+      selectedIds.value = new Set();
+      searchKeyword.value = '';
+      lockPageScroll();
+    } else {
+      unlockPageScroll();
+    }
+  },
+  // 挂载即已打开时也要上锁，不能只等 visible 变化
+  { immediate: true },
+);
 </script>

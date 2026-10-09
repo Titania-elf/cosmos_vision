@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils';
 import InputText from 'primevue/inputtext';
 import PrimeVue from 'primevue/config';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import { nextTick } from 'vue';
 
 import type { ComfyUILoraSetting } from '@/constants/comfyui';
@@ -62,13 +62,20 @@ function existingLora(name: string): ComfyUILoraSetting {
   return { id: `id-${name}`, name, strength: 0.8, enabled: true };
 }
 
+/** 已挂载包装器：弹窗会往 window 挂 scroll 监听，测试间必须显式卸载避免串扰 */
+const mountedWrappers: ReturnType<typeof mount>[] = [];
+
+afterEach(() => {
+  mountedWrappers.splice(0).forEach(wrapper => wrapper.unmount());
+});
+
 /**
  * 挂载批量添加弹窗（内容经 Teleport 渲染到 body）
  * @param props 覆盖属性
  * @returns 挂载后的包装器
  */
 function mountDialog(props: Record<string, unknown> = {}) {
-  return mount(ComfyUILoraBulkAddDialog, {
+  const wrapper = mount(ComfyUILoraBulkAddDialog, {
     props: {
       visible: true,
       comfyuiUrl: COMFYUI_URL,
@@ -81,6 +88,8 @@ function mountDialog(props: Record<string, unknown> = {}) {
       plugins: [PrimeVue],
     },
   });
+  mountedWrappers.push(wrapper);
+  return wrapper;
 }
 
 describe('ComfyUILoraBulkAddDialog 预览图', () => {
@@ -136,5 +145,66 @@ describe('ComfyUILoraBulkAddDialog 预览图', () => {
     const thumbs = wrapper.findAllComponents(ComfyUILoraOptionThumb);
     expect(thumbs).toHaveLength(1);
     expect(thumbs[0]?.props('loraName')).toBe(OPTIONS[1].value);
+  });
+});
+
+describe('ComfyUILoraBulkAddDialog 勾选命中层', () => {
+  it('命中层用铺满整行的透明 input 承载勾选语义', async () => {
+    mountDialog();
+    await nextTick();
+
+    const input = document.body.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    // 不再用 sr-only：ST 的 input[type='checkbox'] 特异性更高，会把 sr-only 的几何顶掉，
+    // 留下被 clip-path 裁成退化矩形的流内元素，聚焦时触发滚动补偿把弹窗顶起
+    expect(input?.classList.contains('cv-lora-bulk-check-input')).toBe(true);
+    expect(input?.classList.contains('sr-only')).toBe(false);
+    // input 的定位上下文必须是行本身，聚焦矩形才等于行
+    expect(input?.closest('label')?.className).toContain('relative');
+  });
+
+  it('点击行双向切换勾选状态', async () => {
+    const wrapper = mountDialog();
+    await nextTick();
+
+    const input = document.body.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    input.click();
+    await nextTick();
+    expect(document.body.textContent).toContain('已选 1 个');
+
+    input.click();
+    await nextTick();
+    expect(document.body.textContent).toContain('已选 0 个');
+
+    expect(wrapper.emitted('confirm')).toBeUndefined();
+  });
+});
+
+describe('ComfyUILoraBulkAddDialog 页面滚动兜底', () => {
+  it('弹窗打开期间页面被滚动时立刻还原', async () => {
+    const scrollTo = vi.fn();
+    vi.stubGlobal('scrollTo', scrollTo);
+    mountDialog();
+    await nextTick();
+
+    // 模拟浏览器聚焦隐藏控件时的滚动补偿
+    Object.defineProperty(window, 'scrollY', { value: 240, configurable: true });
+    window.dispatchEvent(new Event('scroll'));
+
+    expect(scrollTo).toHaveBeenCalledWith(0, 0);
+    Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
+  });
+
+  it('弹窗关闭后停止监听页面滚动', async () => {
+    const scrollTo = vi.fn();
+    vi.stubGlobal('scrollTo', scrollTo);
+    const wrapper = mountDialog();
+    await nextTick();
+
+    await wrapper.setProps({ visible: false });
+    Object.defineProperty(window, 'scrollY', { value: 240, configurable: true });
+    window.dispatchEvent(new Event('scroll'));
+
+    expect(scrollTo).not.toHaveBeenCalled();
+    Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
   });
 });

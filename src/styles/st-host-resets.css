@@ -26,6 +26,38 @@
   content: none;
 }
 
+/**
+ * 批量添加 LoRA 行的原生 checkbox 命中层
+ *
+ * 该行以原生 input 承载勾选语义。ST 的 `input[type='checkbox']` 特异性 (0,1,1)
+ * 压过 Tailwind `.sr-only` (0,1,0)，其 `position: relative` / `width: var(--mainFontSize)`
+ * 会生效，input 既留在 flex 流里、又只靠 `clip-path: inset(50%)` 隐藏。聚焦这种
+ * 被裁成退化矩形的元素时浏览器会做滚动补偿，而本扩展 Dialog 遮罩无法锚定视口
+ * （见 primevue-pt 的 absolute! 与 ST 给 html 加的 -webkit-transform），页面一滚动
+ * 整个弹窗就会上移。这里按 ToggleSwitch 同款做法钉死为覆盖整行的透明命中层，
+ * 让聚焦矩形与行本身一致，滚补偿自然消失。
+ */
+:is(#cosmos_vision, .cosmos-vision-root) .cv-lora-bulk-check-input {
+  @apply absolute inset-0 size-full overflow-hidden opacity-0;
+  z-index: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  transform: none;
+  cursor: pointer;
+}
+
+/* 干掉 ST 给 checkbox 加的 ✓ 伪元素 */
+:is(#cosmos_vision, .cosmos-vision-root) .cv-lora-bulk-check-input::before {
+  content: none;
+}
+
+/* 命中层铺满整行，聚焦描边即行描边，直接接管为可见焦点指示 */
+:is(#cosmos_vision, .cosmos-vision-root) .cv-lora-bulk-check-input:focus-visible {
+  outline: var(--cv-border-width) solid var(--cvp-primary-color);
+  outline-offset: calc(-1 * var(--cv-border-width));
+}
+
 :is(#cosmos_vision, .cosmos-vision-root) .cv-prime-toggleswitch-input {
   @apply absolute inset-0 size-full overflow-hidden opacity-0;
   z-index: 1;
