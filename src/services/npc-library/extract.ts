@@ -43,9 +43,12 @@ export async function extractNpcCandidates(
   if (!tavernHelper) throw new Error('TavernHelper 不可用，无法扫描 NPC');
   const excludeNames = options.excludeNames ?? [];
   const prompts = buildNpcExtractionPrompts(source, excludeNames);
+  // 仅在用户开启「优先 JSON Schema 解析」时附带 schema；默认不带，避免不支持的第三方渠道报错
+  // (提示词已用 <output> 标签约束输出，解析端照常走 JSON.parse)
+  const schema = settings.preferJsonSchemaExtraction ? buildNpcExtractionSchema() : undefined;
   try {
     const result = await requestPromptLlmWithAccounts(tavernHelper, settings, {}, account =>
-      Promise.resolve(buildGenerateRawMessagesRequest(prompts, buildCustomApi(account), buildNpcExtractionSchema(), false)),
+      Promise.resolve(buildGenerateRawMessagesRequest(prompts, buildCustomApi(account), schema, false)),
     );
     return parseNpcExtractionResult(result.rawText, excludeNames);
   } catch (error) {
