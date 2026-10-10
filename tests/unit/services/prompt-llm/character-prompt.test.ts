@@ -44,4 +44,14 @@ describe('readCharacterPrompts', () => {
       { positivePrompt: 'bob', negativePrompt: 'none', position: { x: 0.5, y: 0.5 } },
     ]);
   });
+
+  it('decodes \\n to real line breaks in regex-extracted character prompts (default patterns)', () => {
+    const raw =
+      '<output>{"positivePrompt":"scene","negativePrompt":"bad","characterPrompts":[{"positivePrompt":"alice,\\ntwintails","negativePrompt":"blur","position":{"x":0.25,"y":0.75}}]}</output>';
+    const result = readCharacterPrompts(raw, DEFAULT_SETTINGS.promptLlm);
+    expect(result).toEqual([
+      { positivePrompt: 'alice,\ntwintails', negativePrompt: 'blur', position: { x: 0.25, y: 0.75 } },
+    ]);
+    expect(result[0].positivePrompt).not.toContain('\\n');
+  });
 });

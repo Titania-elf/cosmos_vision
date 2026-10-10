@@ -3,6 +3,7 @@ import {
   buildCustomApi,
   buildGenerateRawMessagesRequest,
   buildJsonSchema,
+  decodeJsonStringEscapes,
   extractOutputBlock,
   getPromptLlmRequestError,
   parsePromptLlmOutput,
@@ -46,6 +47,19 @@ describe('tavern-helper prompt-llm helper', () => {
     };
     const output = readPromptLlmOutputWithRules('positive: cat, dog\nnegative: blurry', settings, null);
     expect(output).toEqual({ positivePrompt: 'cat, dog', negativePrompt: 'blurry' });
+  });
+
+  it('decodes \\n in the regex fallback so the textarea shows real line breaks (not literal \\n)', () => {
+    // 合法 JSON 但缺负面字段 -> 整体 JSON 路径判空回退正则；默认正则捕获到字面 \n 应被还原为真实换行
+    const raw = '<output>{"positivePrompt": "tag1, tag2,\\nnatural sentence."}</output>';
+    const output = readPromptLlmOutputWithRules(raw, DEFAULT_SETTINGS.promptLlm, null);
+    expect(output?.positivePrompt).toBe('tag1, tag2,\nnatural sentence.');
+    expect(output?.positivePrompt).not.toContain('\\n');
+  });
+
+  it('preserves danbooru parenthesis escaping (\\( \\)) while decoding whitespace escapes', () => {
+    expect(decodeJsonStringEscapes('artist \\(style\\), 1girl\\nmasterpiece')).toBe('artist \\(style\\), 1girl\nmasterpiece');
+    expect(decodeJsonStringEscapes('plain tags, no escapes')).toBe('plain tags, no escapes');
   });
 
   it('validates prompt llm request settings and builds custom api & json schema', () => {

@@ -1,6 +1,6 @@
 import type { CharacterPromptItem } from '@/constants/novelai';
 import type { PromptLlmSettings } from '@/constants/prompt-llm';
-import { extractOutputBlock } from '@/services/tavern-helper/prompt-llm';
+import { decodeJsonStringEscapes, extractOutputBlock } from '@/services/tavern-helper/prompt-llm';
 
 type CharacterRecord = Record<string, unknown>;
 
@@ -86,7 +86,8 @@ function readRegexCharacterPrompts(rawText: string, settings: PromptLlmSettings)
 function readRegexValues(source: string, patternText: string): string[] {
   const regex = createGlobalRegex(patternText, '角色提示词');
   if (!regex) return [];
-  return [...source.matchAll(regex)].map(match => match[1]?.trim() ?? '');
+  // 还原捕获串里的 \n 等 JSON 转义(坐标数字无反斜杠不受影响),使角色提示词文本框按真实换行显示
+  return [...source.matchAll(regex)].map(match => decodeJsonStringEscapes(match[1] ?? '').trim());
 }
 
 /**

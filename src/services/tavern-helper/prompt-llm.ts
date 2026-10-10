@@ -548,6 +548,30 @@ function extractPromptByRule(prompt: string, settings: PromptLlmExtractSettings,
   return applyPromptExtractRule(source, buildPromptExtractRule(pattern), config.label);
 }
 
+/** JSON 字符串转义字符到真实字符的映射 */
+const JSON_ESCAPE_MAP: Record<string, string> = {
+  '"': '"',
+  '\\': '\\',
+  '/': '/',
+  b: '\b',
+  f: '\f',
+  n: '\n',
+  r: '\r',
+  t: '\t',
+};
+
+/**
+ * 还原正则从 JSON 字符串体里截取的转义序列(\n \t \r \" \\ 等)
+ * 正则捕获到的内容保留字面转义(如换行是反斜杠加 n 两个字符),逐段还原为真实字符,
+ * 使文本框按真实换行显示、绘图渠道收到真实文本;绘图提示词常用的 \( \) 等非 JSON 转义原样保留
+ * @param value 正则捕获的原始串
+ * @returns 还原转义后的文本
+ */
+export function decodeJsonStringEscapes(value: string): string {
+  if (!value.includes('\\')) return value;
+  return value.replace(/\\(["\\/bfnrt])/g, (match, ch: string) => JSON_ESCAPE_MAP[ch] ?? match);
+}
+
 /**
  * 应用提示词提取规则
  * @param source LLM 原始响应文本
@@ -557,7 +581,7 @@ function extractPromptByRule(prompt: string, settings: PromptLlmExtractSettings,
  */
 function applyPromptExtractRule(source: string, rule: PromptExtractRule, label: string): string {
   const regex = createPromptExtractRegex(rule, label);
-  return regex.exec(source)?.[1]?.trim() ?? '';
+  return decodeJsonStringEscapes(regex.exec(source)?.[1] ?? '').trim();
 }
 
 /**
