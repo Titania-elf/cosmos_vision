@@ -1,6 +1,7 @@
 import type { CosmosVisionSettings, PromptLlmContext } from '@/constants/novelai';
 import {
   createInlineGenerationSessionController,
+  type InlineGenerationProgress,
   type InlineGenerationSession,
 } from '@/composables/inlineGenerationSession';
 import { preventInlineEventBubbling } from '@/composables/inlineImageDom';
@@ -77,6 +78,16 @@ export type { InlineTextInputOptions, InlinePromptPairInputOptions, InlinePrompt
 export type { InlineCharacterPromptDraft } from '@/composables/inlineEditableCharacterPrompt';
 type PromptLlmSchemaFields = ReturnType<typeof buildPromptLlmSchemaFields>;
 declare const toastr: any;
+
+/**
+ * 把 ComfyUI 进度事件转为带步数的状态进度
+ * ComfyUI 的 value/max 即当前/总采样步数，映射为 step/totalSteps 后状态条会按步数展示（与 NovelAI 一致）
+ * @param progress ComfyUI 进度（value=当前步，max=总步数）
+ * @returns 带步数的内联生成进度
+ */
+function toComfyUIStepProgress(progress: { value: number; max: number }): InlineGenerationProgress {
+  return { value: progress.value, max: progress.max, step: progress.value, totalSteps: progress.max };
+}
 
 /**
  * 段落生图运行时控制器
@@ -728,7 +739,7 @@ export function useInlineImageGeneration(
           settings,
           snapshot,
           session.controller.signal,
-          p => session.status.setProgress(p),
+          p => session.status.setProgress(toComfyUIStepProgress(p)),
           streamPreview.onStreamPreview,
         ),
       );
@@ -894,7 +905,7 @@ export function useInlineImageGeneration(
         promptSnapshot: createComfyUISnapshot(request.snapshot, promptParts),
         imageBlobs: await generateComfyUIImagesFromResolvedRequest(settings.comfyui, request, {
           signal: session.controller.signal,
-          onProgress: p => session.status.setProgress(p),
+          onProgress: p => session.status.setProgress(toComfyUIStepProgress(p)),
         }),
       }),
       onSnapshotResolved,
