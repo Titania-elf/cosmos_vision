@@ -91,7 +91,9 @@
               </div>
               <div class="cv-field-control">
                 <CvExpandableTextarea v-model="person.staticTags" rows="3" auto-resize class="w-full font-mono" />
-                <div class="cv-field-hint">固定tag中的内容将在发送到LLM时，被强调原样保留在最终tag中</div>
+                <div class="cv-field-hint">
+                  固定tag会作为角色的默认外观锚点注入最终tag；当该特征被当前场景遮挡（如蒙眼）或与场景冲突时会自动省略
+                </div>
               </div>
             </div>
 
@@ -99,7 +101,14 @@
               class="cv-field"
               :data-cv-tutorial="isTutorialMockPersonId(person.id) ? 'prompt-profiles-template-entries' : undefined"
             >
-              <span>人物模板条目</span>
+              <div class="cv-field-header">
+                <span>人物模板条目</span>
+                <CvMiniButton
+                  label="恢复默认文案"
+                  icon="fa-solid fa-arrows-rotate"
+                  @click="refreshBuiltinEntries(person)"
+                />
+              </div>
               <PromptSourceEntryList
                 v-model="person.templateEntries"
                 :kind="person.kind"
@@ -211,7 +220,7 @@ import { event_types, eventSource } from '@sillytavern/script';
 import type { PromptPerson, PromptPersonInsertMode, PromptPersonKind } from '@/constants/novelai';
 import { useSettingsStore } from '@/store/settings';
 import { appendStaticTags } from '@/services/prompt-profiles/static-tags-draft';
-import { createPromptPerson } from '@/services/prompt-profiles/runtime';
+import { createPromptPerson, refreshBuiltinPromptPersonTemplateEntries } from '@/services/prompt-profiles/runtime';
 import { persistChatProfiles, readChatProfiles } from '@/services/prompt-profiles/chat-store';
 import { isTutorialMockPersonId } from '@/panel/components/onboarding/mock-person';
 import { getCurrentCharacterKey, getCurrentUserPersonaKey } from '@/services/tavern-helper/prompt-profiles-context';
@@ -371,6 +380,26 @@ function buildDefaultPersonName(currentName: string): string {
 function addPerson(person: PromptPerson): void {
   chatProfiles.value.push(person);
   activePersonId.value = person.id;
+}
+
+/**
+ * 把人物的内置模板条目（人物开始 / 人物结束）刷新为最新默认文案
+ * 来源条目与自定义条目保留；仅覆盖这两条，故编辑过它们的用户需二次确认
+ * @param person 人物配置
+ */
+async function refreshBuiltinEntries(person: PromptPerson): Promise<void> {
+  const confirmed = showConfirm
+    ? await showConfirm({
+        title: '恢复默认模板文案',
+        message:
+          '将把该人物的「人物开始 / 人物结束」内置条目更新为最新默认文案；你对这两条的手动修改会被覆盖，来源条目与自定义条目保留。',
+        acceptLabel: '恢复默认',
+        cancelLabel: '取消',
+      })
+    : true;
+  if (!confirmed) return;
+  person.templateEntries = refreshBuiltinPromptPersonTemplateEntries(person.templateEntries);
+  toastr.success('内置模板条目已更新为最新默认');
 }
 
 /**

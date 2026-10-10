@@ -22,6 +22,10 @@ interface PromptPersonMatchContext {
   contextText: string;
 }
 
+/** 内置人物模板条目标题：恢复默认时按标题识别并刷新这两条，其余条目保留 */
+export const PERSON_TEMPLATE_START_TITLE = '人物开始';
+export const PERSON_TEMPLATE_END_TITLE = '人物结束';
+
 /** 命中的人物渲染结果 */
 export interface MatchedPromptPerson {
   person: PromptPerson;
@@ -63,11 +67,38 @@ export function createPromptPerson(kind: PromptPersonKind, name: string, trigger
 export function createDefaultPromptPersonTemplateEntries(): PromptPersonTemplateEntry[] {
   return [
     createCustomPromptPersonTemplateEntry(
-      '人物开始',
-      `<person name="${PROMPT_LLM_TRIGGER_NAMES_TOKEN}">\n  <fixed_tags>以下固定tag为角色特性，必须原样体现在最终正面提示词中：${PROMPT_LLM_FIXED_TAGS_TOKEN}</fixed_tags>。\n  [人物属性冲突解决规则]：\n  1. 若不同输入源的角色特征（如发色、瞳色、服装等特征锚点）出现矛盾冲突，必须按以下权重优先级覆盖：<main_scene> (最高) > <fixed_tags> (次之) > 其他补充资料 (最低)。\n  2. 同一特征锚点在最终提示词中绝对不可重复或冲突出现（例如：若 <fixed_tags> 规定了“蓝色眼睛”，则其他补充资料中得出的“红色眼睛”结论必须被覆盖忽略，只保留高优先级的设定）。\n`,
+      PERSON_TEMPLATE_START_TITLE,
+      `<person name="${PROMPT_LLM_TRIGGER_NAMES_TOKEN}">\n  <fixed_tags>以下固定tag为该角色的默认外观锚点，在不与当前场景状态冲突、且该特征在画面中确实可见时，应体现在最终正面提示词中：${PROMPT_LLM_FIXED_TAGS_TOKEN}</fixed_tags>。\n  [人物属性冲突解决规则]：\n  1. 特征冲突按优先级覆盖：<main_scene>(最高) > <fixed_tags>(次之) > 其他补充资料(最低)；同一特征锚点在最终提示词中绝不可重复或矛盾出现（例如 <fixed_tags> 为“蓝色眼睛”，则其他补充资料得出的“红色眼睛”须被忽略）。\n  2. 遮挡 / 不可见优先：若该角色的某项固定特征在 <main_scene> 当前状态下已被遮挡、覆盖或取代而看不见（如蒙眼、戴口罩、背对镜头、兜帽遮脸、剪影 / 远景），对应固定tag必须省略，只保留“被遮挡”这一状态；绝不可为了“原样体现”把看不见的特征硬塞进画面，否则生图模型会同时去满足“可见特征”与“遮挡状态”而产出互相穿模的画面。\n`,
     ),
-    createCustomPromptPersonTemplateEntry('人物结束', `</person>`),
+    createCustomPromptPersonTemplateEntry(PERSON_TEMPLATE_END_TITLE, `</person>`),
   ];
+}
+
+/**
+ * 把人物模板条目中的内置条目（人物开始 / 人物结束）刷新为最新默认文案
+ * 按标题匹配：命中则原地更新 content（保留 id、启用状态与位置），缺失则补回（人物开始置顶、人物结束置底）
+ * 来源条目（角色描述 / 世界书 / 用户人设）与自定义条目一律保留，不受影响
+ * @param entries 现有模板条目
+ * @returns 刷新后的新条目数组
+ */
+export function refreshBuiltinPromptPersonTemplateEntries(
+  entries: PromptPersonTemplateEntry[],
+): PromptPersonTemplateEntry[] {
+  const [startDefault, endDefault] = createDefaultPromptPersonTemplateEntries();
+  const defaultsByTitle = new Map(
+    [startDefault, endDefault].filter(Boolean).map(entry => [entry.title, entry.content]),
+  );
+  const next = entries.map(entry => {
+    const defaultContent = defaultsByTitle.get(entry.title);
+    return defaultContent === undefined ? entry : { ...entry, content: defaultContent };
+  });
+  if (startDefault && !next.some(entry => entry.title === startDefault.title)) {
+    next.unshift(startDefault);
+  }
+  if (endDefault && !next.some(entry => entry.title === endDefault.title)) {
+    next.push(endDefault);
+  }
+  return next;
 }
 
 /**
