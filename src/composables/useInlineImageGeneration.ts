@@ -80,13 +80,13 @@ type PromptLlmSchemaFields = ReturnType<typeof buildPromptLlmSchemaFields>;
 declare const toastr: any;
 
 /**
- * 把 ComfyUI 进度事件转为带步数的状态进度
- * ComfyUI 的 value/max 即当前/总采样步数，映射为 step/totalSteps 后状态条会按步数展示（与 NovelAI 一致）
+ * 把 ComfyUI 进度事件转为只按步数展示的状态进度
+ * ComfyUI 的 value/max 即当前/总采样步数，映射为 step/totalSteps 并标记 stepsOnly，状态条只显示步数（不显示百分比）
  * @param progress ComfyUI 进度（value=当前步，max=总步数）
- * @returns 带步数的内联生成进度
+ * @returns 只显示步数的内联生成进度
  */
 function toComfyUIStepProgress(progress: { value: number; max: number }): InlineGenerationProgress {
-  return { value: progress.value, max: progress.max, step: progress.value, totalSteps: progress.max };
+  return { value: progress.value, max: progress.max, step: progress.value, totalSteps: progress.max, stepsOnly: true };
 }
 
 /**

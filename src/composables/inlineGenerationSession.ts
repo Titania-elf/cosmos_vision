@@ -25,6 +25,8 @@ export interface InlineGenerationProgress {
   step?: number;
   /** 总步数 */
   totalSteps?: number;
+  /** 仅显示步数（不显示百分比）；需同时提供 step/totalSteps，否则回退百分比 */
+  stepsOnly?: boolean;
 }
 
 /** 段落内生成状态句柄 */
@@ -556,16 +558,20 @@ function renderStatusButtons(
 }
 
 /**
- * 格式化状态文本（运行中且包含进度时附加百分比，带步数时再附加 X/Y 步）
+ * 格式化状态文本（运行中且包含进度时附加进度：默认百分比+步数，stepsOnly 时只显示步数）
  * @param state 当前状态
  * @param isRunning 是否正在运行
  * @returns 状态文本
  */
 function resolveStatusText(state: InlineGenerationStatusState, isRunning: boolean): string {
   if (isRunning && state.progress) {
-    const percent = Math.round((state.progress.value / state.progress.max) * 100);
-    const { step, totalSteps } = state.progress;
-    const stepText = step != null && totalSteps != null ? `（${step}/${totalSteps} 步）` : '';
+    const { value, max, step, totalSteps, stepsOnly } = state.progress;
+    const hasSteps = step != null && totalSteps != null;
+    if (stepsOnly && hasSteps) {
+      return `${state.text} ${step}/${totalSteps} 步`;
+    }
+    const percent = Math.round((value / max) * 100);
+    const stepText = hasSteps ? `（${step}/${totalSteps} 步）` : '';
     return `${state.text} ${percent}%${stepText}`;
   }
   return state.text;
