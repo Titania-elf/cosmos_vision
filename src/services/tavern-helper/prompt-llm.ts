@@ -449,7 +449,9 @@ export function readPromptLlmOutputWithRules(
   fields: PromptLlmOutputFields | null = DEFAULT_PROMPT_LLM_OUTPUT_FIELDS,
 ): PromptLlmOutput | null {
   const cleanText = extractOutputBlock(rawText);
-  const jsonOutput = fields ? readPromptLlmJsonOutput(cleanText, fields) : null;
+  // 即使未开启 JSON Schema 提取，也先用默认字段名尝试 JSON.parse：
+  // 合法 JSON 能正确解码 \n、\" 等转义（避免换行被当成字面 \n），解析失败再退回正则/标签
+  const jsonOutput = readPromptLlmJsonOutput(cleanText, fields ?? DEFAULT_PROMPT_LLM_OUTPUT_FIELDS);
   return jsonOutput ?? readPromptLlmOutputByRules(rawText, settings) ?? readLabeledPromptLlmOutput(cleanText);
 }
 

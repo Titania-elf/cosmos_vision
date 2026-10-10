@@ -7,6 +7,7 @@ import {
   getPromptLlmRequestError,
   parsePromptLlmOutput,
   readPromptLlmOutput,
+  readPromptLlmOutputWithRules,
 } from '@/services/tavern-helper/prompt-llm';
 import { DEFAULT_SETTINGS } from '@/constants/default-settings';
 import { createPromptLlmAccount } from '@/constants/prompt-llm';
@@ -27,6 +28,24 @@ describe('tavern-helper prompt-llm helper', () => {
     const labeledText = 'positive: masterpiece, 1girl\nnegative: bad quality';
     const output = readPromptLlmOutput(labeledText);
     expect(output).toEqual({ positivePrompt: 'masterpiece, 1girl', negativePrompt: 'bad quality' });
+  });
+
+  it('decodes JSON \\n to a real newline even when JSON schema extraction is off (fields=null)', () => {
+    const raw = `<output>${JSON.stringify({ positivePrompt: 'tag1, tag2,\nnatural sentence.', negativePrompt: '' })}</output>`;
+    const output = readPromptLlmOutputWithRules(raw, DEFAULT_SETTINGS.promptLlm, null);
+    expect(output).toEqual({ positivePrompt: 'tag1, tag2,\nnatural sentence.', negativePrompt: '' });
+    expect(output?.positivePrompt).toContain('\n');
+    expect(output?.positivePrompt).not.toContain('\\n');
+  });
+
+  it('falls back to the regex rule when the output block is not valid JSON', () => {
+    const settings = {
+      ...DEFAULT_SETTINGS.promptLlm,
+      positivePromptExtractPattern: '/positive:\\s*([^\\n]+)/i',
+      negativePromptExtractPattern: '/negative:\\s*([^\\n]+)/i',
+    };
+    const output = readPromptLlmOutputWithRules('positive: cat, dog\nnegative: blurry', settings, null);
+    expect(output).toEqual({ positivePrompt: 'cat, dog', negativePrompt: 'blurry' });
   });
 
   it('validates prompt llm request settings and builds custom api & json schema', () => {
