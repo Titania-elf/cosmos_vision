@@ -39,6 +39,8 @@
       </div>
     </div>
 
+    <AutoCompositionPanel class="mb-(--cv-space-5xl)" />
+
     <div data-cv-tutorial="prompt-llm-builder-preset">
       <div class="mb-(--cv-space-5xl)">
         <h2 class="cv-section-title">提示词生成预设</h2>
@@ -191,6 +193,7 @@
 
 <script setup lang="ts">
 import { uuidv4 } from '@sillytavern/scripts/utils';
+import AutoCompositionPanel from '@/panel/components/AutoCompositionPanel.vue';
 import PresetImportDialog from '@/panel/components/PresetImportDialog.vue';
 import PresetSelector from '@/panel/components/PresetSelector.vue';
 import PromptLlmMessageList from '@/panel/components/PromptLlmMessageList.vue';

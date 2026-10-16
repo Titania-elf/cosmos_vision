@@ -6,6 +6,8 @@ import {
   buildComfyUIResolvedRequest,
   buildComfyUIResolvedRequestFromPrompts,
   type ComfyUILoraOverride,
+  type ComfyUIResolutionOverride,
+  type ComfyUIResolutionResolvedRequest,
 } from '@/services/comfyui/request';
 import { normalizeComfyUIUrl } from '@/services/comfyui/parse';
 import {
@@ -72,12 +74,14 @@ export interface ComfyUIPromptsRequestOptions extends ComfyUIRequestOptions {
   loraNodes?: readonly ComfyUILoraNodeSnapshot[];
   /** 显式覆写的 LoRA 触发词；若提供则不再从远端解析 */
   loraTriggerWords?: readonly string[];
+  /** 单次请求尺寸覆写，供构图与快照回放使用 */
+  resolutionOverride?: ComfyUIResolutionOverride;
 }
 
 export interface ComfyUIPromptsGenerationResult {
   imageBlobs: Blob[];
   requestSnapshot: ComfyUIRequestSnapshot;
-  resolvedRequest: ComfyUIResolvedRequest;
+  resolvedRequest: ComfyUIResolutionResolvedRequest;
 }
 
 /**
@@ -95,17 +99,8 @@ export async function generateComfyUIImages(
   options: ComfyUIRequestOptions = {},
 ): Promise<Blob[]> {
   const loraTriggerWords = await resolveActiveComfyUILoraTriggerWords(settings, options.signal);
-  const resolvedRequest = await buildComfyUIResolvedRequest(
-    settings,
-    presetSettings,
-    prompts,
-    loraTriggerWords,
-  );
-  return generateComfyUIImagesFromResolvedRequest(
-    settings,
-    resolvedRequest,
-    options,
-  );
+  const resolvedRequest = await buildComfyUIResolvedRequest(settings, presetSettings, prompts, loraTriggerWords);
+  return generateComfyUIImagesFromResolvedRequest(settings, resolvedRequest, options);
 }
 
 /**
@@ -122,23 +117,21 @@ export async function generateComfyUIImagesFromPrompts(
 ): Promise<ComfyUIPromptsGenerationResult> {
   const loraOverride = resolveLoraOverrideOption(options);
   // 触发词优先用调用方给定值，其次按本次回放的 LoRA 名解析，最后回退到面板激活组
-  const loraTriggerWords = options.loraTriggerWords !== undefined
-    ? options.loraTriggerWords
-    : (loraOverride !== undefined
+  const loraTriggerWords =
+    options.loraTriggerWords !== undefined
+      ? options.loraTriggerWords
+      : loraOverride !== undefined
         ? await resolveComfyUILoraTriggerWords(settings.url, listOverrideLoraNames(options), options.signal)
-        : await resolveActiveComfyUILoraTriggerWords(settings, options.signal));
+        : await resolveActiveComfyUILoraTriggerWords(settings, options.signal);
 
   const resolvedRequest = await buildComfyUIResolvedRequestFromPrompts(
     settings,
     prompts,
     loraTriggerWords,
     loraOverride,
+    options.resolutionOverride,
   );
-  const imageBlobs = await generateComfyUIImagesFromResolvedRequest(
-    settings,
-    resolvedRequest,
-    options,
-  );
+  const imageBlobs = await generateComfyUIImagesFromResolvedRequest(settings, resolvedRequest, options);
   return {
     imageBlobs,
     requestSnapshot: resolvedRequest.snapshot,
@@ -196,15 +189,8 @@ export async function generateComfyUIImagesFromResolvedRequest(
     if (options.onProgress) {
       cleanups.push(listenComfyUIProgress(baseUrl, promptId, clientId, timeout.signal, options.onProgress));
     }
-    const historyResult = await pollComfyUIHistory(
-      baseUrl,
-      promptId,
-      request.imageOutputNodeId,
-      timeout.signal,
-    );
-    return await Promise.all(
-      historyResult.images.map(image => fetchComfyUIImage(baseUrl, image, timeout.signal)),
-    );
+    const historyResult = await pollComfyUIHistory(baseUrl, promptId, request.imageOutputNodeId, timeout.signal);
+    return await Promise.all(historyResult.images.map(image => fetchComfyUIImage(baseUrl, image, timeout.signal)));
   } catch (error) {
     throwIfRequestTimedOut(timeout, 'ComfyUI 生图', settings.timeout);
     throwIfComfyUIAborted(timeout.signal);
@@ -372,9 +358,7 @@ export async function applyImageBindings(
       filename: `cosmos-${target.source}.png`,
       signal,
     });
-    node.inputs[target.inputName] = uploaded.subfolder
-      ? `${uploaded.subfolder}/${uploaded.name}`
-      : uploaded.name;
+    node.inputs[target.inputName] = uploaded.subfolder ? `${uploaded.subfolder}/${uploaded.name}` : uploaded.name;
   }
 }
 
@@ -483,7 +467,9 @@ export async function fetchComfyUIHistoryResult(
   const images = extractHistoryImages(entry, imageOutputNodeId);
   if (!images) {
     if (entry.status?.completed === true) {
-      throw new Error(`ComfyUI 执行完成但结果节点 ${imageOutputNodeId} 未产出图片（该节点可能不是输出节点，请检查工作流结果节点配置）`);
+      throw new Error(
+        `ComfyUI 执行完成但结果节点 ${imageOutputNodeId} 未产出图片（该节点可能不是输出节点，请检查工作流结果节点配置）`,
+      );
     }
     return null;
   }
@@ -606,11 +592,7 @@ function readCheckpointLoaderInfo(payload: unknown): ComfyUICheckpointLoaderInfo
  * @param signal 取消信号
  * @returns 图片 Blob
  */
-async function fetchComfyUIImage(
-  baseUrl: string,
-  image: ComfyUIHistoryImage,
-  signal?: AbortSignal,
-): Promise<Blob> {
+async function fetchComfyUIImage(baseUrl: string, image: ComfyUIHistoryImage, signal?: AbortSignal): Promise<Blob> {
   const params = new URLSearchParams({ filename: image.filename });
   if (image.subfolder) params.set('subfolder', image.subfolder);
   if (image.type) params.set('type', image.type);

@@ -14,6 +14,9 @@ import { NPC_LIBRARY_GLOBAL_GROUP, type NpcLibraryEntry } from '@/constants/npc-
 import type { PromptLlmRuntimeContent } from '@/services/prompt-llm/message-preset';
 import { buildAutoParticipantRuntimeContent, safeRenderPromptTemplate } from '@/services/prompt-profiles/auto-runtime';
 import { readChatProfiles } from '@/services/prompt-profiles/chat-store';
+import { buildImageOutfitContext } from '@/services/outfit-continuity/runtime';
+import { stripOutfitRecords } from '@/services/outfit-continuity/timeline';
+import { buildCompositionInstruction } from '@/services/image-composition';
 import { readNpcLibraryEntries } from '@/services/npc-library/store';
 import { getCurrentCharacterKey } from '@/services/tavern-helper/prompt-profiles-context';
 import { resolvePromptPersonTemplateEntry } from '@/services/tavern-helper/prompt-profiles-sources';
@@ -149,7 +152,8 @@ export async function buildPromptLlmRuntimeContent(
   settings?: Pick<
     PromptLlmSettings,
     'historyFloorCount' | 'ignoreUserMessagesInHistory' | 'autoCharacterInfo' | 'useNpcLibrary'
-  >,
+  > &
+    Partial<Pick<PromptLlmSettings, 'autoComposition'>>,
 ): Promise<PromptLlmRuntimeContent> {
   const [autoResult, profilesResult] = await Promise.all([
     settings?.autoCharacterInfo ? buildAutoParticipantRuntimeContent(context, settings) : Promise.resolve(null),
@@ -168,10 +172,12 @@ export async function buildPromptLlmRuntimeContent(
 
   const base = autoResult ?? profilesResult;
   return {
-    historyContent: base.historyContent,
+    historyContent: stripOutfitRecords(base.historyContent),
     participantContent,
-    focusParagraphContent: base.focusParagraphContent,
+    focusParagraphContent: stripOutfitRecords(base.focusParagraphContent),
     specialRequestContent: buildSpecialRequestContent(context.specialRequest),
+    outfitContent: buildImageOutfitContext(context),
+    compositionContent: buildCompositionInstruction(settings?.autoComposition),
   };
 }
 

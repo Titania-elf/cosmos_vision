@@ -23,10 +23,7 @@ import { generateComfyUIImagesFromResolvedRequest } from '@/services/comfyui/api
 import { resolveActiveComfyUILoraTriggerWords } from '@/services/comfyui/lora-trigger-words';
 import { getActiveComfyUILoraPreset } from '@/services/comfyui/lora-presets';
 import { buildComfyUIResolvedRequest } from '@/services/comfyui/request';
-import {
-  buildNovelAIResolvedRequest,
-  generateNovelAIImagesFromResolvedRequest,
-} from '@/services/novelai/api';
+import { buildNovelAIResolvedRequest, generateNovelAIImagesFromResolvedRequest } from '@/services/novelai/api';
 import { extractPromptLlmResult } from '@/services/prompt-llm/runtime-request';
 import { useSettingsStore } from '@/store/settings';
 
@@ -199,11 +196,16 @@ describe('api/generate-image', () => {
         negative: store.savedSettings.comfyui.negativePromptPresetId,
       },
       LORA_PRESET,
+      undefined,
     );
-    expect(mockedComfyImages).toHaveBeenCalledWith(store.savedSettings.comfyui, { resolved: true }, {
-      signal: undefined,
-      onProgress: undefined,
-    });
+    expect(mockedComfyImages).toHaveBeenCalledWith(
+      store.savedSettings.comfyui,
+      { resolved: true },
+      {
+        signal: undefined,
+        onProgress: undefined,
+      },
+    );
     expect(mockedNaiImages).not.toHaveBeenCalled();
   });
 
@@ -217,7 +219,15 @@ describe('api/generate-image', () => {
       onStreamPreview,
     });
 
-    const event = { previewBlob: new Blob(['p']), imageIndex: 0, step: 3, totalSteps: 28, completedCount: 0, imageCount: 1, isFinal: false };
+    const event = {
+      previewBlob: new Blob(['p']),
+      imageIndex: 0,
+      step: 3,
+      totalSteps: 28,
+      completedCount: 0,
+      imageCount: 1,
+      isFinal: false,
+    };
     mockedNaiImages.mock.calls[0]![2]!.onStreamPreview!(event);
 
     expect(onStreamPreview).toHaveBeenCalledWith({ ...event, requestId: 'req-nai' });

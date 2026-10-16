@@ -19,6 +19,8 @@ import type {
   GenerateImageOptions,
   GenerateImageResult,
 } from './types';
+import { readImageOrientation, resolveNovelAIImageComposition } from '@/services/image-composition';
+import { resolveComfyUIImageComposition } from '@/services/comfyui/image-composition';
 
 /**
  * 按插件当前设置直接生成图片（不请求 LLM、不写聊天楼层与画廊）
@@ -32,9 +34,10 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gene
   const requestId = options.requestId ?? createApiRequestId();
   const { savedSettings } = useSettingsStore();
   const prompts = resolveImagePrompts(options, savedSettings);
-  const imageBlobs = savedSettings.imageSource === 'comfyui'
-    ? await requestComfyUIImageBlobs(savedSettings, prompts, options, requestId)
-    : await requestNovelAIImageBlobs(savedSettings, prompts, options, requestId);
+  const imageBlobs =
+    savedSettings.imageSource === 'comfyui'
+      ? await requestComfyUIImageBlobs(savedSettings, prompts, options, requestId)
+      : await requestNovelAIImageBlobs(savedSettings, prompts, options, requestId);
   return { requestId, imageBlobs, prompts };
 }
 
@@ -45,17 +48,19 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gene
  * @param settings 运行时已保存设置
  * @returns 结构化核心提示词
  */
-function resolveImagePrompts(
-  options: GenerateImageOptions,
-  settings: CosmosVisionSettings,
-): ApiResolvedImagePrompts {
+function resolveImagePrompts(options: GenerateImageOptions, settings: CosmosVisionSettings): ApiResolvedImagePrompts {
   if (options.prompts) return normalizeApiPrompts(options.prompts);
   // 提取函数内部已保证正面提示词非空（空/无法解析均抛同款结构化错误）
-  const result = extractPromptLlmResult(options.rawText ?? '', settings.promptLlm, buildPromptLlmSchemaFields(settings.promptLlm));
+  const result = extractPromptLlmResult(
+    options.rawText ?? '',
+    settings.promptLlm,
+    buildPromptLlmSchemaFields(settings.promptLlm),
+  );
   return {
     positivePrompt: result.output.positivePrompt,
     negativePrompt: result.output.negativePrompt,
     characterPrompts: result.characterPrompts,
+    ...(result.output.orientation ? { orientation: result.output.orientation } : {}),
   };
 }
 
@@ -69,6 +74,7 @@ function normalizeApiPrompts(prompts: ApiImagePrompts): ApiResolvedImagePrompts 
     positivePrompt: prompts.positivePrompt,
     negativePrompt: prompts.negativePrompt ?? '',
     characterPrompts: (prompts.characterPrompts ?? []).map(normalizeCharacterPrompt),
+    ...(readImageOrientation(prompts.orientation) ? { orientation: prompts.orientation } : {}),
   };
 }
 
@@ -120,8 +126,16 @@ async function requestNovelAIImageBlobs(
   requestId: string,
 ): Promise<Blob[]> {
   const overrides = buildNovelAIPromptOverrides(prompts, prompts.characterPrompts);
-  const request = buildNovelAIResolvedRequest(
+  const composition = resolveNovelAIImageComposition(
+    settings.promptLlm.autoComposition,
+    prompts.orientation,
     settings.novelai,
+  );
+  const imageSettings = composition
+    ? { ...settings.novelai, width: composition.width, height: composition.height }
+    : settings.novelai;
+  const request = buildNovelAIResolvedRequest(
+    imageSettings,
     settings.imagePromptPresets,
     settings.promptLlm,
     overrides,
@@ -149,7 +163,11 @@ async function requestComfyUIImageBlobs(
   options: GenerateImageOptions,
   requestId: string,
 ): Promise<Blob[]> {
-  const { comfyui } = settings;
+  const { settings: comfyui, composition } = resolveComfyUIImageComposition(
+    settings.comfyui,
+    settings.promptLlm.autoComposition,
+    prompts.orientation,
+  );
   const effectiveLoraPreset = getActiveComfyUILoraPreset(comfyui.loraPresets);
   const loraTriggerWords = await resolveActiveComfyUILoraTriggerWords(
     { url: comfyui.url, loraPresets: { ...comfyui.loraPresets, activePresetId: effectiveLoraPreset.id } },
@@ -162,6 +180,7 @@ async function requestComfyUIImageBlobs(
     loraTriggerWords,
     { positive: comfyui.positivePromptPresetId, negative: comfyui.negativePromptPresetId },
     effectiveLoraPreset,
+    composition,
   );
   const onProgress = options.onProgress;
   return generateComfyUIImagesFromResolvedRequest(comfyui, request, {

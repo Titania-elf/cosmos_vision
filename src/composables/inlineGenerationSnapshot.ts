@@ -3,6 +3,7 @@ import type { ComfyUIRequestSnapshot } from '@/services/comfyui/types';
 import type { NovelAIFinalPrompts } from '@/services/novelai/api';
 import type { NovelAIRequestInfo, NovelAIRequestSnapshot } from '@/services/novelai/types';
 import { formatTimestampForFileName } from '@/services/inline-image/filename-utils';
+import type { ImageCompositionSnapshot } from '@/constants/image-composition';
 
 /**
  * 从完整 NovelAI 请求快照提取去除提示词后的参数元数据
@@ -23,6 +24,7 @@ export function toNovelAIRequestInfo(snapshot: NovelAIRequestSnapshot): NovelAIR
 export function createNovelAISnapshot(
   prompts: NovelAIFinalPrompts,
   request?: NovelAIRequestInfo,
+  composition?: ImageCompositionSnapshot,
 ): InlinePromptSnapshot {
   return {
     positivePrompt: prompts.positivePrompt,
@@ -33,6 +35,7 @@ export function createNovelAISnapshot(
       ? { positive: { ...prompts.promptParts.positive }, negative: { ...prompts.promptParts.negative } }
       : undefined,
     ...(request ? { novelaiRequest: request } : {}),
+    ...(composition ? { composition: { ...composition } } : {}),
   };
 }
 
@@ -45,11 +48,13 @@ export function createNovelAISnapshot(
 export function createComfyUISnapshot(
   snapshot: ComfyUIRequestSnapshot,
   promptParts?: InlinePromptSnapshot['promptParts'],
+  composition?: ImageCompositionSnapshot,
 ): InlinePromptSnapshot {
   return {
     imageSource: 'comfyui',
     comfyui: snapshot,
     promptParts,
+    ...(composition ? { composition: { ...composition } } : {}),
   };
 }
 

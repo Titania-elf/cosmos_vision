@@ -1,6 +1,7 @@
 <template>
   <div class="cv-tab-content flex flex-col gap-0">
     <div class="mt-(--cv-space-5xl) flex flex-col gap-(--cv-space-4xl)">
+      <OutfitContinuityPanel />
       <div data-cv-tutorial="prompt-profiles-overview">
         <Button label="新建人物" icon="fa-solid fa-user-plus" outlined class="w-full" @click="createBlankPerson" />
       </div>
@@ -210,6 +211,7 @@
 
 <script setup lang="ts">
 import CollapsiblePanelItem from '@/panel/components/CollapsiblePanelItem.vue';
+import OutfitContinuityPanel from '@/panel/components/OutfitContinuityPanel.vue';
 import CvExpandableTextarea from '@/panel/components/CvExpandableTextarea.vue';
 import CvMiniButton from '@/panel/components/CvMiniButton.vue';
 import CvMiniToggleSwitch from '@/panel/components/CvMiniToggleSwitch.vue';
@@ -303,9 +305,7 @@ const showConfirm =
   >('showConfirm');
 const tagParseDialogStyle = { width: '30rem', maxWidth: 'calc(100dvw - 2rem)' } as const;
 
-const filteredProfiles = computed(() =>
-  chatProfiles.value.filter(person => person.kind === activeKind.value),
-);
+const filteredProfiles = computed(() => chatProfiles.value.filter(person => person.kind === activeKind.value));
 const canConfirmTagParse = computed(() => {
   if (!tagParseDialogPerson.value || isParsingTags.value) return false;
   if (tagParseMode.value === 'template') return true;

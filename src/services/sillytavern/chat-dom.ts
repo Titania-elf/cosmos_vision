@@ -1,6 +1,7 @@
 import type { PromptLlmContext, PromptLlmSettings } from '@/constants/novelai';
 import { chat } from '@sillytavern/script';
 import { stripSlotShortcodes } from '@/services/inline-image/slot-shortcode';
+import { stripOutfitRecords } from '@/services/outfit-continuity/timeline';
 import { readPromptLlmHistoryMessages } from '@/services/tavern-helper/chat-history';
 import { buildRegexedHistory } from '@/services/tavern-helper/history-builder';
 import {
@@ -142,15 +143,12 @@ function getContainerRoot(container: HTMLElement): HTMLElement {
  */
 function getContainerTextBlockElements(container: HTMLElement, hasIframeTarget = false): HTMLElement[] {
   const root = getContainerRoot(container);
-  const semanticBlocks = Array.from(
-    root.querySelectorAll(`:is(${MESSAGE_TEXT_BLOCK_SELECTOR})`),
-  ).filter(isLeafMessageTextBlock).filter(element =>
-    !hasIframeTarget || !isFrontendSourceBlock(element),
-  );
+  const semanticBlocks = Array.from(root.querySelectorAll(`:is(${MESSAGE_TEXT_BLOCK_SELECTOR})`))
+    .filter(isLeafMessageTextBlock)
+    .filter(element => !hasIframeTarget || !isFrontendSourceBlock(element));
   const explicitBubbles = Array.from(root.querySelectorAll('[data-cv-selectable]')).filter(isHTMLElementNode);
   const implicitBubbles = getImplicitFrontendBubbles(root, semanticBlocks);
-  return [...new Set([...semanticBlocks, ...explicitBubbles, ...implicitBubbles])]
-    .sort(compareDomOrder);
+  return [...new Set([...semanticBlocks, ...explicitBubbles, ...implicitBubbles])].sort(compareDomOrder);
 }
 
 /**
@@ -210,8 +208,8 @@ export function getMessageSelectableUnits(target: HTMLElement): HTMLElement[] {
  * @returns 不与显式气泡层级重叠的最内层气泡
  */
 function getImplicitFrontendBubbles(container: HTMLElement, semanticBlocks: HTMLElement[]): HTMLElement[] {
-  const candidates = Array.from(container.querySelectorAll('div')).filter(
-    element => isImplicitFrontendBubble(element, semanticBlocks),
+  const candidates = Array.from(container.querySelectorAll('div')).filter(element =>
+    isImplicitFrontendBubble(element, semanticBlocks),
   );
   return candidates.filter(candidate => !candidates.some(other => other !== candidate && candidate.contains(other)));
 }
@@ -235,16 +233,18 @@ function getIframeBubbleBlocks(mesBlock: HTMLElement): HTMLIFrameElement[] {
  * @returns 是否可作为隐式气泡候选
  */
 function isImplicitFrontendBubble(element: Element, semanticBlocks: HTMLElement[]): boolean {
-  return isHTMLElementNode(element)
-    && Boolean(element.className)
-    && Boolean(element.textContent?.trim())
-    && !semanticBlocks.includes(element)
-    && !hasCosmosInlineClass(element)
-    && !element.querySelector(MESSAGE_TEXT_BLOCK_SELECTOR)
-    && !element.closest('[data-cv-selectable]')
-    && !element.querySelector('[data-cv-selectable]')
-    && !element.closest('iframe')
-    && element.tagName !== 'IFRAME';
+  return (
+    isHTMLElementNode(element) &&
+    Boolean(element.className) &&
+    Boolean(element.textContent?.trim()) &&
+    !semanticBlocks.includes(element) &&
+    !hasCosmosInlineClass(element) &&
+    !element.querySelector(MESSAGE_TEXT_BLOCK_SELECTOR) &&
+    !element.closest('[data-cv-selectable]') &&
+    !element.querySelector('[data-cv-selectable]') &&
+    !element.closest('iframe') &&
+    element.tagName !== 'IFRAME'
+  );
 }
 
 /**
@@ -336,9 +336,7 @@ export function readSelectableUnitText(element: HTMLElement): string {
     const doc = tryAccessIframeDocument(element);
     return doc?.body ? extractFrontendText(doc.body) : '';
   }
-  return element.hasAttribute('data-cv-selectable')
-    ? extractFrontendText(element)
-    : extractCleanParagraphText(element);
+  return element.hasAttribute('data-cv-selectable') ? extractFrontendText(element) : extractCleanParagraphText(element);
 }
 
 /**
@@ -347,7 +345,7 @@ export function readSelectableUnitText(element: HTMLElement): string {
  * @returns 去除源码后的历史文本
  */
 export function stripFrontendSourceMarkup(value: string): string {
-  return value
+  return stripOutfitRecords(value)
     .replace(/<!doctype\s+html\b[\s\S]*?<\/html\s*>/gi, '')
     .replace(/<html\b[\s\S]*?<\/html\s*>/gi, '')
     .replace(/<(title|style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
@@ -407,7 +405,11 @@ function isLeafMessageTextBlock(element: Element): element is HTMLElement {
  * @returns 保留换行后的文本
  */
 function normalizeMessageTextBlock(text: string): string {
-  return text.replace(/[ \t]+\n/g, '\n').replace(/\n[ \t]+/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return text
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /**
@@ -452,11 +454,16 @@ export async function buildPromptLlmContextFromParagraphs(
   const rawId = findMessageId(anchor);
   const parsedIndex = rawId ? parseInt(rawId, 10) : NaN;
   const messageIndex = Number.isInteger(parsedIndex) && parsedIndex >= 0 ? parsedIndex : null;
+  const currentParagraphs = extractMessageParagraphsUntil(anchor);
+  const baseList = getSelectionBaseList(paragraphs);
+  const paragraphIndex = baseList.indexOf(anchor) + 1;
   return {
     historyParagraphs: await buildPromptLlmHistoryParagraphsWithRegex(anchor, settings),
     focusParagraph,
     specialRequest: '',
     messageIndex,
+    ...(paragraphIndex > 0 ? { paragraphIndex } : {}),
+    focusMessageText: stripOutfitRecords(currentParagraphs.join('\n\n')),
   };
 }
 
@@ -469,9 +476,7 @@ export function getMessageChatParagraphs(targetP: HTMLElement): HTMLElement[] {
   const mesBlock = (getHostIframe(targetP) ?? targetP).closest('[mesid]');
   if (!isHTMLElementNode(mesBlock)) return [];
   const selector = `.mes_text :is(${MESSAGE_TEXT_BLOCK_SELECTOR})`;
-  return Array.from(mesBlock.querySelectorAll(selector))
-    .filter(isHTMLElementNode)
-    .filter(isLeafMessageTextBlock);
+  return Array.from(mesBlock.querySelectorAll(selector)).filter(isHTMLElementNode).filter(isLeafMessageTextBlock);
 }
 
 /**
@@ -772,10 +777,12 @@ export function findChatParagraph(el: HTMLElement): HTMLElement | null {
  * @returns 最后一个可见消息正文或 null
  */
 function findVisibleMessageText(): HTMLElement | null {
-  return Array.from(document.querySelectorAll('.mes .mes_text, .mes_text'))
-    .filter(isHTMLElementNode)
-    .filter(isVisibleElement)
-    .at(-1) ?? null;
+  return (
+    Array.from(document.querySelectorAll('.mes .mes_text, .mes_text'))
+      .filter(isHTMLElementNode)
+      .filter(isVisibleElement)
+      .at(-1) ?? null
+  );
 }
 
 /**

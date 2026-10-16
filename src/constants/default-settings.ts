@@ -11,6 +11,7 @@ import {
   type ImageSource,
 } from '@/constants/comfyui';
 import { createImagePromptPresetSettings } from '@/constants/image-prompt';
+import { DEFAULT_IMAGE_COMPOSITION_SETTINGS } from '@/constants/image-composition';
 import { createNpcLibrarySettings } from '@/constants/npc-library';
 import { createRandomPresetPoolSettings } from '@/constants/random-preset-pool';
 import {
@@ -173,6 +174,7 @@ export const DEFAULT_SETTINGS: CosmosVisionSettings = {
     autoCharacterInfo: false,
     useNpcLibrary: true,
     autoUpdateNpcLibrary: false,
+    autoComposition: DEFAULT_IMAGE_COMPOSITION_SETTINGS,
     preferJsonSchemaExtraction: false,
     positivePromptJsonField: DEFAULT_PROMPT_LLM_OUTPUT_FIELDS.positive,
     negativePromptJsonField: DEFAULT_PROMPT_LLM_OUTPUT_FIELDS.negative,

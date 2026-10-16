@@ -6,6 +6,7 @@ import type { NovelAIFinalPrompts } from '@/services/novelai/api';
 import type { NovelAIRequestInfo } from '@/services/novelai/types';
 import type { NovelAIVibeParameters } from '@/services/novelai/vibe-types';
 import { reactive } from 'vue';
+import type { ImageCompositionSnapshot } from '@/constants/image-composition';
 
 /** 单侧提示词部件：可变（core）与不可变（模板）分离 */
 export interface InlinePromptParts {
@@ -25,6 +26,8 @@ export interface InlinePromptSnapshot {
   promptParts?: { positive: InlinePromptParts; negative: InlinePromptParts };
   /** 生成成功时记录的 NovelAI 参数与命中渠道，旧快照无此字段 */
   novelaiRequest?: NovelAIRequestInfo;
+  /** 本图实际应用的自动构图及尺寸，供编辑和重生成沿用。 */
+  composition?: ImageCompositionSnapshot;
 }
 
 export interface InlineLightboxActions {
@@ -79,6 +82,7 @@ export function cloneInlinePromptSnapshot(snapshot: InlinePromptSnapshot): Inlin
     comfyui: snapshot.comfyui ? cloneComfyUIRequestSnapshot(snapshot.comfyui) : undefined,
     promptParts: snapshot.promptParts ? cloneInlinePromptParts(snapshot.promptParts) : undefined,
     ...(snapshot.novelaiRequest ? { novelaiRequest: { ...snapshot.novelaiRequest } } : {}),
+    ...(snapshot.composition ? { composition: { ...snapshot.composition } } : {}),
   };
 }
 
@@ -87,7 +91,9 @@ export function cloneInlinePromptSnapshot(snapshot: InlinePromptSnapshot): Inlin
  * @param parts 原始正负部件
  * @returns 纯对象部件
  */
-function cloneInlinePromptParts(parts: NonNullable<InlinePromptSnapshot['promptParts']>): NonNullable<InlinePromptSnapshot['promptParts']> {
+function cloneInlinePromptParts(
+  parts: NonNullable<InlinePromptSnapshot['promptParts']>,
+): NonNullable<InlinePromptSnapshot['promptParts']> {
   return { positive: { ...parts.positive }, negative: { ...parts.negative } };
 }
 

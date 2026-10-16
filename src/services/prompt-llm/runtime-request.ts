@@ -34,6 +34,7 @@ import { readCharacterPrompts } from '@/services/prompt-llm/character-prompt';
 import { readComfyUIMainModelNames } from '@/services/comfyui/model-loaders';
 import { parseComfyUIWorkflow } from '@/services/comfyui/parse';
 import { getActiveComfyUIWorkflowJson } from '@/services/comfyui/workflow-presets';
+import { extractImageOrientation, selectFinalPromptOutput } from '@/services/image-composition';
 
 /** Prompt LLM 运行时生成选项 */
 export interface PromptLlmGenerateOptions {
@@ -155,7 +156,7 @@ export async function buildPromptLlmRuntimeRequest(
   account?: PromptLlmAccount,
 ): Promise<TavernHelperGenerateRawConfig> {
   const orderedPrompts = await buildPromptLlmOrderedPrompts(presetSettings, runtimeContent, triggerContext);
-  const schema = schemaFields ? buildJsonSchema(schemaFields) : undefined;
+  const schema = schemaFields ? buildJsonSchema(schemaFields, !!runtimeContent.compositionContent?.trim()) : undefined;
   const requestAccount = account ?? getAvailablePromptLlmAccounts(settings)[0];
   const shouldStream = requestAccount?.shouldStream ?? false;
   return buildGenerateRawMessagesRequest(orderedPrompts, buildCustomApi(requestAccount), schema, shouldStream);
@@ -182,7 +183,17 @@ export async function buildPromptLlmOrderedPrompts(
       content: await resolvePromptLlmMessageContent(message, runtimeContent),
     })),
   );
-  return prompts.filter(prompt => prompt.content.trim());
+  const filtered = prompts.filter(prompt => prompt.content.trim());
+  if (runtimeContent.outfitContent?.trim()) {
+    filtered.push({ role: 'system', content: runtimeContent.outfitContent });
+  }
+  if (
+    runtimeContent.compositionContent?.trim() &&
+    !filtered.some(prompt => prompt.content.includes(runtimeContent.compositionContent!))
+  ) {
+    filtered.push({ role: 'system', content: runtimeContent.compositionContent });
+  }
+  return filtered;
 }
 
 /**
@@ -356,7 +367,8 @@ export function extractPromptLlmResult(
     throw createExtractionError('empty_output', rawText);
   }
 
-  const output = readPromptLlmOutputWithRules(rawText, settings, schemaFields);
+  const finalOutput = selectFinalPromptOutput(rawText);
+  const output = readPromptLlmOutputWithRules(finalOutput, settings, schemaFields);
   if (!output) {
     throw createExtractionError(detectExtractionFailureType(rawText, settings, schemaFields), rawText);
   }
@@ -366,7 +378,11 @@ export function extractPromptLlmResult(
     throw createExtractionError('invalid_format', rawText);
   }
 
-  return { output, characterPrompts: readCharacterPrompts(rawText, settings) };
+  const orientation = extractImageOrientation(rawText);
+  return {
+    output: orientation ? { ...output, orientation } : output,
+    characterPrompts: readCharacterPrompts(finalOutput, settings),
+  };
 }
 
 /**

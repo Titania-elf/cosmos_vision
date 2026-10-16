@@ -2,6 +2,7 @@ import _ from 'lodash';
 import { z } from 'zod';
 
 import { DEFAULT_SETTINGS } from '@/constants/default-settings';
+import { DEFAULT_IMAGE_COMPOSITION_SETTINGS, type ImageCompositionSettings } from '@/constants/image-composition';
 import { MAX_HISTORY_FLOOR_COUNT } from '@/constants/limits';
 import type { PromptLlmAccount, PromptLlmSettings } from '@/constants/prompt-llm';
 import {
@@ -11,6 +12,32 @@ import {
 } from '@/constants/prompt-llm';
 
 type PlainRecord = Record<string, unknown>;
+
+const imageCompositionDimensionSchema = z.number().int().min(64).max(4096).multipleOf(64);
+function imageCompositionSizeSchema(orientation: keyof ImageCompositionSettings['sizes']) {
+  const fallback = DEFAULT_IMAGE_COMPOSITION_SETTINGS.sizes[orientation];
+  return z
+    .object({
+      width: imageCompositionDimensionSchema.default(fallback.width),
+      height: imageCompositionDimensionSchema.default(fallback.height),
+    })
+    .default(() => _.cloneDeep(fallback));
+}
+
+/** 自动构图设置保持独立校验，旧版设置缺省为关闭。 */
+export const imageCompositionSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  sizeMode: z.enum(['presets', 'swap']).default('presets'),
+  sizes: z
+    .object({
+      portrait: imageCompositionSizeSchema('portrait'),
+      landscape: imageCompositionSizeSchema('landscape'),
+      square: imageCompositionSizeSchema('square'),
+    })
+    .default(() => _.cloneDeep(DEFAULT_IMAGE_COMPOSITION_SETTINGS.sizes)),
+  prompt: z.string().default(DEFAULT_IMAGE_COMPOSITION_SETTINGS.prompt),
+  comfyuiTargets: z.record(z.string(), z.string()).default({}),
+});
 
 /**
  * 读取路由模式选项的 value 元组
@@ -55,6 +82,7 @@ export const promptLlmSettingsSchema = z.object({
   autoCharacterInfo: z.boolean(),
   useNpcLibrary: z.boolean().default(true),
   autoUpdateNpcLibrary: z.boolean().default(false),
+  autoComposition: imageCompositionSettingsSchema.default(() => _.cloneDeep(DEFAULT_IMAGE_COMPOSITION_SETTINGS)),
   preferJsonSchemaExtraction: z.boolean(),
   positivePromptJsonField: z.string(),
   negativePromptJsonField: z.string(),
@@ -90,6 +118,7 @@ export function recoverPromptLlmSettings(value: unknown): PromptLlmSettings {
     autoCharacterInfo: read('autoCharacterInfo', z.boolean()),
     useNpcLibrary: read('useNpcLibrary', z.boolean()),
     autoUpdateNpcLibrary: read('autoUpdateNpcLibrary', z.boolean()),
+    autoComposition: recoverImageCompositionSettings(record.autoComposition),
     preferJsonSchemaExtraction: read('preferJsonSchemaExtraction', z.boolean()),
     positivePromptJsonField: read('positivePromptJsonField', z.string()),
     negativePromptJsonField: read('negativePromptJsonField', z.string()),
@@ -105,6 +134,41 @@ export function recoverPromptLlmSettings(value: unknown): PromptLlmSettings {
     characterNegativePromptExtractPattern: read('characterNegativePromptExtractPattern', z.string()),
     characterPositionXExtractPattern: read('characterPositionXExtractPattern', z.string()),
     characterPositionYExtractPattern: read('characterPositionYExtractPattern', z.string()),
+  };
+}
+
+/**
+ * 按字段恢复自动构图设置，某一尺寸或目标异常不影响其余有效配置。
+ * @param value 原始自动构图设置
+ * @returns 具备完整默认值的自动构图设置
+ */
+export function recoverImageCompositionSettings(value: unknown): ImageCompositionSettings {
+  const fallback = DEFAULT_IMAGE_COMPOSITION_SETTINGS;
+  const { read } = createRecoveryReader(value, fallback);
+  const record = toPlainRecord(value);
+  const sizes = toPlainRecord(record.sizes);
+  const recoverSize = (orientation: keyof ImageCompositionSettings['sizes']) => {
+    const size = toPlainRecord(sizes[orientation]);
+    return {
+      width: parseField(imageCompositionDimensionSchema, size.width, fallback.sizes[orientation].width),
+      height: parseField(imageCompositionDimensionSchema, size.height, fallback.sizes[orientation].height),
+    };
+  };
+  const comfyuiTargets = Object.fromEntries(
+    Object.entries(toPlainRecord(record.comfyuiTargets)).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  );
+  return {
+    enabled: read('enabled', z.boolean()),
+    sizeMode: read('sizeMode', z.enum(['presets', 'swap'])),
+    sizes: {
+      portrait: recoverSize('portrait'),
+      landscape: recoverSize('landscape'),
+      square: recoverSize('square'),
+    },
+    prompt: read('prompt', z.string()),
+    comfyuiTargets,
   };
 }
 
@@ -124,10 +188,7 @@ const PROMPT_LLM_LEGACY_CONNECTION_KEYS = [
 const PROMPT_LLM_LEGACY_PARAM_KEYS = ['temperature', 'maxTokens', 'topP', 'topK'] as const;
 
 /** 账号生成参数字段集合（迁移与恢复共用） */
-type AccountParamFields = Pick<
-  PromptLlmAccount,
-  'temperature' | 'maxTokens' | 'topP' | 'topK' | 'shouldStream'
->;
+type AccountParamFields = Pick<PromptLlmAccount, 'temperature' | 'maxTokens' | 'topP' | 'topK' | 'shouldStream'>;
 
 /**
  * 将旧顶层生成参数拷贝给缺少对应参数的账号

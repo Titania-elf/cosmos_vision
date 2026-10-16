@@ -1,3 +1,5 @@
+import type { ImageCompositionSettings } from '@/constants/image-composition';
+
 /**
  * 提示词 LLM 相关的常量与类型定义
  */
@@ -107,6 +109,8 @@ export interface PromptLlmSettings {
   useNpcLibrary: boolean;
   /** 是否在 AI 消息生成后后台自动扫描并更新 NPC 库(默认关) */
   autoUpdateNpcLibrary: boolean;
+  /** 同一次提示词生成请求决定画面方向与尺寸。 */
+  autoComposition: ImageCompositionSettings;
   /** 是否优先 JSON Schema 解析(公共:所有生图渠道共享) */
   preferJsonSchemaExtraction: boolean;
   /** 正面提示词 JSON 字段名 */
@@ -149,6 +153,10 @@ export interface PromptLlmContext {
   specialRequest: string;
   /** 当前焦点消息在完整 chat[] 中的索引（可选，用于自动世界书扫描等定位） */
   messageIndex?: number | null;
+  /** 焦点末段在本消息中的段落编号，从 1 起算。 */
+  paragraphIndex?: number;
+  /** 本消息开头到焦点末段的可见正文，用于定位服装变化。 */
+  focusMessageText?: string;
 }
 
 /** 提示词 LLM 输出字段名(单侧留空表示该侧不参与 JSON 提取,交给固定预设) */

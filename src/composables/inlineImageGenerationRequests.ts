@@ -14,9 +14,13 @@ import { resolveComfyUILoraTriggerWords } from '@/services/comfyui/lora-trigger-
 import { generateNovelAIImageFromPrompts, type NovelAIFinalPrompts } from '@/services/novelai/api';
 import type { NovelAIStreamPreviewEvent } from '@/services/novelai/stream-api';
 import type { ImagePromptPair } from '@/services/image-prompt/presets';
+import { isValidCompositionSize } from '@/services/image-composition';
+import { NOVELAI_IMAGE_SIZE_LIMITS } from '@/constants/novelai';
 import {
   buildPromptLlmHistoryExcludingFocusFloor,
   extractMessageParagraphsUntil,
+  findMessageId,
+  getMessageSelectableUnits,
 } from '@/services/sillytavern/chat-dom';
 
 /**
@@ -44,9 +48,18 @@ export async function generateImagesFromSnapshot(
   }
   // 极旧 NAI 快照无 novelai 子对象，顶层必写提示词（NAI 链路始终写顶层），收窄转换安全
   const prompts = snapshot.novelai ?? (snapshot as NovelAIFinalPrompts);
-  const result = await generateNovelAIImageFromPrompts(settings.novelai, prompts, { signal, onStreamPreview });
+  const composition =
+    isValidCompositionSize(snapshot.composition) &&
+    snapshot.composition.width <= NOVELAI_IMAGE_SIZE_LIMITS.max &&
+    snapshot.composition.height <= NOVELAI_IMAGE_SIZE_LIMITS.max
+      ? snapshot.composition
+      : undefined;
+  const imageSettings = composition
+    ? { ...settings.novelai, width: composition.width, height: composition.height }
+    : settings.novelai;
+  const result = await generateNovelAIImageFromPrompts(imageSettings, prompts, { signal, onStreamPreview });
   return {
-    promptSnapshot: createNovelAISnapshot(prompts, toNovelAIRequestInfo(result.snapshot)),
+    promptSnapshot: createNovelAISnapshot(prompts, toNovelAIRequestInfo(result.snapshot), composition),
     imageBlobs: [result.imageBlob],
   };
 }
@@ -99,7 +112,11 @@ async function generateComfyUIImagesFromSnapshot(
   const playbackLoras = nodeReplay ? loraNodes.flatMap(node => node.loras) : chosenLoras;
   const prompts = resolveComfyUIPlaybackPrompts(settings, snapshot);
   const loraTriggerWords = snapshot.promptParts
-    ? await resolveComfyUILoraTriggerWords(settings.comfyui.url, playbackLoras.map(l => l.name), signal)
+    ? await resolveComfyUILoraTriggerWords(
+        settings.comfyui.url,
+        playbackLoras.map(l => l.name),
+        signal,
+      )
     : [];
 
   const result = await generateComfyUIImagesFromPrompts(settings.comfyui, prompts, {
@@ -109,6 +126,7 @@ async function generateComfyUIImagesFromSnapshot(
     ...(loraNodes !== undefined ? { loraNodes } : {}),
     loraTriggerWords,
     onProgress,
+    ...(isValidCompositionSize(snapshot.composition) ? { resolutionOverride: snapshot.composition } : {}),
   });
 
   const promptSnapshot: InlinePromptSnapshot = {
@@ -118,6 +136,9 @@ async function generateComfyUIImagesFromSnapshot(
       ...(nextLoraPresetId ? { loraPresetId: nextLoraPresetId } : {}),
     },
     ...(snapshot.promptParts ? { promptParts: snapshot.promptParts } : {}),
+    ...(result.resolvedRequest.resolutionOverrideApplied && snapshot.composition
+      ? { composition: { ...snapshot.composition } }
+      : {}),
   };
   return { promptSnapshot, imageBlobs: result.imageBlobs };
 }
@@ -135,14 +156,8 @@ function resolveComfyUIPlaybackPrompts(
 ): ImagePromptPair {
   if (snapshot.promptParts) {
     return {
-      positivePrompt: resolveEditedImagePrompt(
-        settings.imagePromptPresets.positive,
-        snapshot.promptParts.positive,
-      ),
-      negativePrompt: resolveEditedImagePrompt(
-        settings.imagePromptPresets.negative,
-        snapshot.promptParts.negative,
-      ),
+      positivePrompt: resolveEditedImagePrompt(settings.imagePromptPresets.positive, snapshot.promptParts.positive),
+      negativePrompt: resolveEditedImagePrompt(settings.imagePromptPresets.negative, snapshot.promptParts.negative),
     };
   }
   // 旧快照原样回放：不做任何拼接，空白交给请求构建层统一 trim
@@ -168,7 +183,17 @@ export async function buildFrontendPromptContext(
   if (!focusParagraph) throw new Error('未找到目标气泡文本');
   const previousParagraphs = await buildPromptLlmHistoryExcludingFocusFloor(anchor, promptSettings);
   const currentFloorParagraphs = extractMessageParagraphsUntil(anchor);
-  return { historyParagraphs: [...previousParagraphs, ...currentFloorParagraphs], focusParagraph, specialRequest: '' };
+  const rawId = findMessageId(anchor);
+  const parsedIndex = rawId ? Number(rawId) : NaN;
+  const paragraphIndex = getMessageSelectableUnits(anchor).indexOf(anchor) + 1;
+  return {
+    historyParagraphs: [...previousParagraphs, ...currentFloorParagraphs],
+    focusParagraph,
+    specialRequest: '',
+    messageIndex: Number.isInteger(parsedIndex) && parsedIndex >= 0 ? parsedIndex : null,
+    ...(paragraphIndex > 0 ? { paragraphIndex } : {}),
+    focusMessageText: currentFloorParagraphs.join('\n\n'),
+  };
 }
 
 /**
@@ -206,7 +231,13 @@ export function resolveFloorTailRenderContext(
  * @returns 有效图片 ID
  */
 export async function persistFloorTailImages(
-  render: (mesId: number, swipeId: number, slotId: string, result: { imageBlob: Blob; promptSnapshot: InlinePromptSnapshot }, targetAnchor?: HTMLElement) => Promise<string | null>,
+  render: (
+    mesId: number,
+    swipeId: number,
+    slotId: string,
+    result: { imageBlob: Blob; promptSnapshot: InlinePromptSnapshot },
+    targetAnchor?: HTMLElement,
+  ) => Promise<string | null>,
   mesId: number,
   swipeId: number,
   slotId: string,

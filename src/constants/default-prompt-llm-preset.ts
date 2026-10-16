@@ -4,6 +4,7 @@
  */
 
 import type { PromptLlmMessagePresetSettings } from '@/constants/novelai';
+import { DEFAULT_PROMPT_LLM_COMPOSITION_MESSAGE_ID, PROMPT_LLM_COMPOSITION_TOKEN } from '@/constants/image-composition';
 import {
   PROMPT_LLM_FOCUS_PARAGRAPH_TOKEN,
   PROMPT_LLM_HISTORY_TOKEN,
@@ -809,6 +810,17 @@ I will now start listing the tags.
 
 </output_format>
 `,
+          enabled: true,
+          triggerMatchMode: 'always',
+          triggerKeywordGroups: [],
+          triggerModels: [],
+          triggerImageSources: [],
+        },
+        {
+          id: DEFAULT_PROMPT_LLM_COMPOSITION_MESSAGE_ID,
+          title: '自动构图',
+          role: 'system',
+          content: PROMPT_LLM_COMPOSITION_TOKEN,
           enabled: true,
           triggerMatchMode: 'always',
           triggerKeywordGroups: [],

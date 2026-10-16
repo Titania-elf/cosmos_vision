@@ -75,6 +75,8 @@ interface CosmosVisionImagePrompts {
   negativePrompt?: string;
   /** NovelAI V4/V4.5 角色提示词，其他图源忽略 */
   characterPrompts?: CosmosVisionCharacterPrompt[];
+  /** 开启自动构图时使用该方向的配置尺寸；也可由 rawText 顶层 JSON 返回。 */
+  orientation?: 'portrait' | 'landscape' | 'square';
 }
 
 /** ComfyUI 步数进度回调参数 */
@@ -127,6 +129,7 @@ interface CosmosVisionGenerateImageResult {
 interface CosmosVisionResolvedImagePrompts {
   positivePrompt: string;
   negativePrompt: string;
+  orientation?: 'portrait' | 'landscape' | 'square';
   characterPrompts: Array<{
     positivePrompt: string;
     negativePrompt: string;

@@ -14,6 +14,7 @@ export type { PromptLlmOutputFields } from '@/constants/novelai';
 export interface PromptLlmOutput {
   positivePrompt: string;
   negativePrompt: string;
+  orientation?: import('@/constants/image-composition').ImageOrientation;
 }
 
 /** Prompt LLM 完整提取结果(全局正负提示词 + 角色提示词) */
@@ -164,15 +165,24 @@ function collectPromptOutputFields(fields: PromptLlmOutputFields | null): string
  */
 export function buildJsonSchema(
   fields: PromptLlmOutputFields = DEFAULT_PROMPT_LLM_OUTPUT_FIELDS,
+  includeComposition = false,
 ): TavernHelperJsonSchema {
   const fieldList = collectPromptOutputFields(fields);
+  if (includeComposition && !fieldList.includes('orientation')) fieldList.push('orientation');
   return {
     name: PROMPT_LLM_JSON_SCHEMA_NAME,
     description: PROMPT_LLM_JSON_SCHEMA_DESCRIPTION,
     strict: true,
     value: {
       type: 'object',
-      properties: Object.fromEntries(fieldList.map(name => [name, buildPromptOutputProperty(name, fields)])),
+      properties: Object.fromEntries(
+        fieldList.map(name => [
+          name,
+          includeComposition && name === 'orientation'
+            ? { type: 'string', enum: ['portrait', 'landscape', 'square'], description: '画面构图方向' }
+            : buildPromptOutputProperty(name, fields),
+        ]),
+      ),
       required: fieldList,
       additionalProperties: false,
     },

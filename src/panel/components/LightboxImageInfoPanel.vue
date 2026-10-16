@@ -156,12 +156,21 @@ const imageSourceBadge = computed(() => {
 
 /** 计算所有参数展示行 */
 const paramRows = computed<ParamRow[]>(() => {
+  const composition = props.snapshot?.composition;
+  const rows: ParamRow[] = composition
+    ? [
+        {
+          label: '自动构图',
+          value: `${{ portrait: '竖版', landscape: '横版', square: '方形' }[composition.orientation]} · ${composition.width}×${composition.height}`,
+        },
+      ]
+    : [];
   if (props.snapshot?.novelaiRequest) {
-    return buildNovelAIParamRows(props.snapshot.novelaiRequest);
+    return [...rows, ...buildNovelAIParamRows(props.snapshot.novelaiRequest)];
   }
   if (props.snapshot?.comfyui) {
-    return buildComfyUIParamRows(props.snapshot.comfyui);
+    return [...rows, ...buildComfyUIParamRows(props.snapshot.comfyui)];
   }
-  return [];
+  return rows;
 });
 </script>

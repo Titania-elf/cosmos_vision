@@ -1,5 +1,6 @@
 import type { CharacterPromptItem } from '@/constants/novelai';
 import type { NovelAIStreamPreviewEvent } from '@/services/novelai/stream-api';
+import type { ImageOrientation } from '@/constants/image-composition';
 
 /** 接口一上下文（调用方自行收集，插件不读 DOM/楼层） */
 export interface ApiPromptContext {
@@ -40,6 +41,8 @@ export interface ApiImagePrompts {
   positivePrompt: string;
   negativePrompt?: string;
   characterPrompts?: ApiCharacterPrompt[];
+  /** 开启自动构图时按此方向应用配置尺寸。 */
+  orientation?: ImageOrientation;
 }
 
 /** ComfyUI 生图进度（附加 requestId 便于共享回调区分归属） */
@@ -73,6 +76,7 @@ export interface ApiResolvedImagePrompts {
   positivePrompt: string;
   negativePrompt: string;
   characterPrompts: CharacterPromptItem[];
+  orientation?: ImageOrientation;
 }
 
 /** 接口二返回 */

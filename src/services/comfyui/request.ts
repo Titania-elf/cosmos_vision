@@ -22,7 +22,7 @@ import { applyModelMatch } from '@/services/comfyui/model-loaders';
 import { applySeedModes } from '@/services/comfyui/seed-runtime';
 import { fetchComfyUIObjectInfo, getCachedComfyUIObjectInfo } from '@/services/comfyui/object-info';
 import { getActiveComfyUIWorkflowJson, getActiveComfyUIWorkflowPreset } from '@/services/comfyui/workflow-presets';
-import { listResolutionTargets } from '@/services/comfyui/resolution-combos';
+import { applyResolutionToTarget, listResolutionTargets } from '@/services/comfyui/resolution-combos';
 import { ensureImageExportNode } from '@/services/comfyui/export-node';
 import type {
   ComfyUILoraNodeSnapshot,
@@ -48,6 +48,20 @@ export type ComfyUILoraOverride =
   | { kind: 'flat'; loras: readonly ComfyUILoraSnapshot[] }
   | { kind: 'nodes'; nodes: readonly ComfyUILoraNodeSnapshot[] };
 
+/** 仅应用于本次请求的分辨率覆写 */
+export interface ComfyUIResolutionOverride {
+  width: number;
+  height: number;
+  /** 多个尺寸目标时必须明确指定；缺省仅自动选择唯一目标 */
+  targetKey?: string;
+}
+
+/** 包含单次分辨率覆写结果的请求，供调用方判断是否记录构图信息 */
+export type ComfyUIResolutionResolvedRequest = ComfyUIResolvedRequest & {
+  resolutionOverrideApplied: boolean;
+  resolutionOverrideTargetKey?: string;
+};
+
 /** 本次的 LoRA 写入方案 */
 interface ComfyUILoraPlan {
   assignments: ComfyUILoraNodeAssignment[];
@@ -59,9 +73,7 @@ interface ComfyUILoraPlan {
  * @param loras 快照记录的 LoRA 列表
  * @returns 等效 LoRA 预设组
  */
-export function createComfyUILoraPresetFromSnapshots(
-  loras: readonly ComfyUILoraSnapshot[],
-): ComfyUILoraPreset {
+export function createComfyUILoraPresetFromSnapshots(loras: readonly ComfyUILoraSnapshot[]): ComfyUILoraPreset {
   return {
     id: 'playback-snapshot-loras',
     name: LORA_PLAYBACK_PRESET_NAME,
@@ -146,6 +158,7 @@ function resolveSnapshotLoraPresetId(
  * @param loraTriggerWords 本次生效 LoRA 的触发词
  * @param presetIds 本次实际使用的预设 ID（随机池抽中或面板当前），缺省用设置内引用
  * @param loraOverride 显式指定的 LoRA 覆写（预设组 / 扁平快照 / 按节点分组快照）；缺省按节点绑定解析
+ * @param resolutionOverride 仅作用于本次工作流副本的尺寸覆写
  * @returns 可直接发送的工作流与快照
  */
 export async function buildComfyUIResolvedRequest(
@@ -155,7 +168,8 @@ export async function buildComfyUIResolvedRequest(
   loraTriggerWords: readonly string[] = [],
   presetIds?: { positive: string; negative: string },
   loraOverride?: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[] | ComfyUILoraOverride,
-): Promise<ComfyUIResolvedRequest> {
+  resolutionOverride?: ComfyUIResolutionOverride,
+): Promise<ComfyUIResolutionResolvedRequest> {
   const references = presetIds
     ? { positivePromptPresetId: presetIds.positive, negativePromptPresetId: presetIds.negative }
     : settings;
@@ -164,6 +178,7 @@ export async function buildComfyUIResolvedRequest(
     buildImagePromptPair(presetSettings, references, prompts),
     loraTriggerWords,
     loraOverride,
+    resolutionOverride,
   );
 }
 
@@ -173,6 +188,7 @@ export async function buildComfyUIResolvedRequest(
  * @param prompts 已完成拼接的正负提示词
  * @param loraTriggerWords 本次生效 LoRA 的触发词
  * @param loraOverride 显式指定的 LoRA 覆写（预设组 / 旧扁平快照 / 按节点分组快照）；缺省按节点绑定解析
+ * @param resolutionOverride 仅作用于本次工作流副本的尺寸覆写
  * @returns 可直接发送的工作流与快照
  */
 export async function buildComfyUIResolvedRequestFromPrompts(
@@ -180,12 +196,15 @@ export async function buildComfyUIResolvedRequestFromPrompts(
   prompts: ImagePromptPair,
   loraTriggerWords: readonly string[] = [],
   loraOverride?: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[] | ComfyUILoraOverride,
-): Promise<ComfyUIResolvedRequest> {
-  const objectInfo = getCachedComfyUIObjectInfo(settings.url) ?? await fetchComfyUIObjectInfo(settings.url).catch(() => null);
+  resolutionOverride?: ComfyUIResolutionOverride,
+): Promise<ComfyUIResolutionResolvedRequest> {
+  const objectInfo =
+    getCachedComfyUIObjectInfo(settings.url) ?? (await fetchComfyUIObjectInfo(settings.url).catch(() => null));
   const workflowJson = getActiveComfyUIWorkflowJson(settings.workflowPresets);
   const source = parseAndValidateWorkflow(workflowJson, objectInfo);
   const { positivePrompt, negativePrompt } = requirePromptPair(prompts);
   const workflow = structuredClone(source) as ComfyUIWorkflow;
+  const resolutionOverrideTargetKey = applyRequestResolutionOverride(workflow, resolutionOverride);
   const loraPlan = resolveLoraPlan(workflow, settings, loraOverride);
   applyLoraPlan(workflow, loraPlan);
   const hasLoraNode = loraPlan.assignments.length > 0;
@@ -205,7 +224,11 @@ export async function buildComfyUIResolvedRequestFromPrompts(
     workflow,
     loraPlan.assignments.map(assignment => assignment.nodeId),
   );
-  const resolution = readWorkflowResolution(workflow);
+  const resolution = readWorkflowResolution(workflow, resolutionOverrideTargetKey);
+  const resolutionOverrideApplied =
+    resolutionOverrideTargetKey !== undefined &&
+    resolution?.width === resolutionOverride?.width &&
+    resolution?.height === resolutionOverride?.height;
   // 记录指向真实设置组的 ID，供「编辑 tag 后重新生图」弹窗回填；合成组不记录
   const effectiveLoraPreset = resolveEffectiveLoraPreset(settings, loraOverride);
   const loraPresetId = resolveSnapshotLoraPresetId(effectiveLoraPreset, loraOverride);
@@ -214,6 +237,8 @@ export async function buildComfyUIResolvedRequestFromPrompts(
   return {
     workflow,
     imageOutputNodeId: exportNodeId,
+    resolutionOverrideApplied,
+    ...(resolutionOverrideApplied ? { resolutionOverrideTargetKey } : {}),
     snapshot: {
       endpoint: normalizeComfyUIUrl(settings.url),
       positivePrompt: triggeredPositivePrompt,
@@ -233,13 +258,54 @@ export async function buildComfyUIResolvedRequestFromPrompts(
 }
 
 /**
- * 读取工作流首个分辨率目标的当前尺寸（无尺寸节点时返回 undefined）
+ * 读取指定分辨率目标的当前尺寸，缺省使用首个目标（无尺寸节点时返回 undefined）
  * @param workflow 工作流
+ * @param targetKey 本次成功覆写的目标 key
  * @returns 分辨率或 undefined
  */
-function readWorkflowResolution(workflow: ComfyUIWorkflow): { width: number; height: number } | undefined {
-  const target = listResolutionTargets(workflow)[0];
+function readWorkflowResolution(
+  workflow: ComfyUIWorkflow,
+  targetKey?: string,
+): { width: number; height: number } | undefined {
+  const targets = listResolutionTargets(workflow);
+  const target = targetKey === undefined ? targets[0] : targets.find(item => item.key === targetKey);
   return target ? { width: target.width, height: target.height } : undefined;
+}
+
+/**
+ * 在工作流副本上应用单次尺寸覆写；无效尺寸或不明确的目标保持原样。
+ * @param workflow 已校验的工作流副本
+ * @param override 本次尺寸覆写
+ * @returns 成功写入的尺寸目标 key，否则 undefined
+ */
+function applyRequestResolutionOverride(
+  workflow: ComfyUIWorkflow,
+  override?: ComfyUIResolutionOverride,
+): string | undefined {
+  if (!override || !isRequestResolutionSize(override.width) || !isRequestResolutionSize(override.height)) {
+    return undefined;
+  }
+  const targets = listResolutionTargets(workflow);
+  const target =
+    override.targetKey === undefined
+      ? targets.length === 1
+        ? targets[0]
+        : undefined
+      : targets.find(item => item.key === override.targetKey);
+  if (!target) return undefined;
+  // 同一 Primitive 同时承载宽高时只能写入方形尺寸。
+  if (
+    target.widthPoint.nodeId === target.heightPoint.nodeId &&
+    target.widthPoint.inputName === target.heightPoint.inputName &&
+    override.width !== override.height
+  )
+    return undefined;
+  return applyResolutionToTarget(workflow, target, override) ? target.key : undefined;
+}
+
+/** 检查请求尺寸：64 至 4096 的整数，且为 64 的倍数。 */
+function isRequestResolutionSize(value: number): boolean {
+  return Number.isInteger(value) && value >= 64 && value <= 4096 && value % 64 === 0;
 }
 
 /**
@@ -248,10 +314,7 @@ function readWorkflowResolution(workflow: ComfyUIWorkflow): { width: number; hei
  * @param objectInfo 节点 schema 表
  * @returns 已校验工作流
  */
-function parseAndValidateWorkflow(
-  workflowJson: string,
-  objectInfo: ComfyUIObjectInfoMap | null,
-): ComfyUIWorkflow {
+function parseAndValidateWorkflow(workflowJson: string, objectInfo: ComfyUIObjectInfoMap | null): ComfyUIWorkflow {
   const source = parseComfyUIWorkflow(workflowJson);
   const bindingError = validatePromptBindings(source);
   if (bindingError) throw new Error(bindingError);
@@ -276,7 +339,8 @@ function resolveLoraPlan(
   workflow: ComfyUIWorkflow,
   settings: Pick<ComfyUISettings, 'loraPresets'>,
   override?: ComfyUILoraPreset | readonly ComfyUILoraSnapshot[] | ComfyUILoraOverride,
-): ComfyUILoraPlan {  if (isTaggedLoraOverride(override) && override.kind === 'nodes') {
+): ComfyUILoraPlan {
+  if (isTaggedLoraOverride(override) && override.kind === 'nodes') {
     return { assignments: toNodeAssignments(workflow, override.nodes), presetName: LORA_PLAYBACK_PRESET_NAME };
   }
   if (isTaggedLoraOverride(override) && override.kind === 'flat') {

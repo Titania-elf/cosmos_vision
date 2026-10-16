@@ -11,6 +11,7 @@ import {
 import type { PromptLlmMessage, PromptLlmMessagePreset, PromptLlmMessagePresetSettings } from '@/constants/prompt-llm';
 import { resolvePromptLlmSourceMessage } from '@/services/prompt-llm/message-source';
 import { withPromptLlmMessageTriggerDefaults } from '@/services/prompt-llm/message-trigger';
+import { PROMPT_LLM_COMPOSITION_TOKEN } from '@/constants/image-composition';
 
 /** LLM 运行时替换内容 */
 export interface PromptLlmRuntimeContent {
@@ -18,6 +19,9 @@ export interface PromptLlmRuntimeContent {
   participantContent: string;
   focusParagraphContent: string;
   specialRequestContent: string;
+  /** 按目标消息和段落定位的服装快照，独立于用户预设发送。 */
+  outfitContent?: string;
+  compositionContent?: string;
 }
 
 /** 旧版运行时保留条目迁移配置 */
@@ -29,10 +33,15 @@ interface LegacyRuntimeMessageConfig {
 
 const LEGACY_RUNTIME_MESSAGE_CONFIGS = [
   { id: PROMPT_LLM_HISTORY_MESSAGE_ID, title: PROMPT_LLM_HISTORY_MESSAGE_TITLE, token: PROMPT_LLM_HISTORY_TOKEN },
-  { id: PROMPT_LLM_PARTICIPANT_MESSAGE_ID, title: PROMPT_LLM_PARTICIPANT_MESSAGE_TITLE, token: PROMPT_LLM_PARTICIPANT_TOKEN },
+  {
+    id: PROMPT_LLM_PARTICIPANT_MESSAGE_ID,
+    title: PROMPT_LLM_PARTICIPANT_MESSAGE_TITLE,
+    token: PROMPT_LLM_PARTICIPANT_TOKEN,
+  },
 ] as const satisfies readonly LegacyRuntimeMessageConfig[];
 
-const PROMPT_LLM_CONTENT_TOKEN_PATTERN = /\{\{(?:history|participants|focus_paragraph|special_request)\}\}/g;
+const PROMPT_LLM_CONTENT_TOKEN_PATTERN =
+  /\{\{(?:history|participants|focus_paragraph|special_request|composition)\}\}/g;
 
 /**
  * 读取当前激活的提示词预设
@@ -40,7 +49,8 @@ const PROMPT_LLM_CONTENT_TOKEN_PATTERN = /\{\{(?:history|participants|focus_para
  * @returns 激活预设
  */
 export function getActivePromptLlmPreset(presetSettings: PromptLlmMessagePresetSettings): PromptLlmMessagePreset {
-  const preset = presetSettings.presets.find(item => item.id === presetSettings.activePresetId) ?? presetSettings.presets[0];
+  const preset =
+    presetSettings.presets.find(item => item.id === presetSettings.activePresetId) ?? presetSettings.presets[0];
   if (!preset) throw new Error('未找到当前激活的提示词预设');
   return preset;
 }
@@ -83,6 +93,7 @@ function replacePromptLlmContentTokens(content: string, runtimeContent: PromptLl
     [PROMPT_LLM_PARTICIPANT_TOKEN]: runtimeContent.participantContent,
     [PROMPT_LLM_FOCUS_PARAGRAPH_TOKEN]: runtimeContent.focusParagraphContent,
     [PROMPT_LLM_SPECIAL_REQUEST_TOKEN]: runtimeContent.specialRequestContent,
+    [PROMPT_LLM_COMPOSITION_TOKEN]: runtimeContent.compositionContent ?? '',
   };
   return content.replace(PROMPT_LLM_CONTENT_TOKEN_PATTERN, token => replacements[token] ?? token);
 }
