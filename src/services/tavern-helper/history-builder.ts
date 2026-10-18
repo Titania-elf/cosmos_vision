@@ -1,6 +1,7 @@
 import { MAX_HISTORY_FLOOR_COUNT } from '@/constants/limits';
 import { getOptionalTavernHelper } from '@/services/tavern-helper/availability';
 import { stripOutfitRecords } from '@/services/outfit-continuity/timeline';
+import { stripNpcRecords } from '@/services/npc-library/records';
 
 /**
  * 酒馆助手返回的单条聊天消息（最小契约）
@@ -224,7 +225,7 @@ function processMessagesWithRegex(
   const depthBaseline = options.depthBaseline ?? options.currentMessageIndex;
 
   return messages.map(msg => {
-    const raw = stripOutfitRecords(msg.message || '');
+    const raw = stripNpcRecords(stripOutfitRecords(msg.message || ''));
     stats.rawChars += raw.length;
     // user -> user_input，Narrator/system/assistant 均按 ST 主链映射为 ai_output
     const source = msg.role === 'user' ? 'user_input' : 'ai_output';

@@ -24,6 +24,18 @@ export interface DownloadCountResult {
   failedCount: number;
 }
 
+export interface ImageDownloadProgress {
+  phase: 'images' | 'archive';
+  completed: number;
+  total: number;
+}
+
+export interface ImageBatchDownloadOptions {
+  /** 批量导出即使只有一张图片也生成 ZIP */
+  forceZip?: boolean;
+  onProgress?: (progress: ImageDownloadProgress) => void;
+}
+
 const DownloadJSZip = JSZip as unknown as DownloadZipConstructor;
 const DEFAULT_ARCHIVE_NAME = 'cosmos-vision-inline-image-favorites.zip';
 const SELECTED_ARCHIVE_NAME = 'cosmos-vision-selected-favorites.zip';
@@ -129,20 +141,22 @@ export async function downloadInlineImageBlobItems(
  * @param items 流式下载项列表
  * @param options 下载配置
  * @param archiveName 多图时的 ZIP 文件名
+ * @param batchOptions 强制打包与处理进度回调
  * @returns 成功/失败计数（部分失败已跳过，全失败抛错）
  */
 export async function downloadInlineImageStreamItems(
   items: DownloadableImageStreamItem[],
   options: InlineImageDownloadOptions,
   archiveName = 'cosmos-vision-selected-images.zip',
+  batchOptions: ImageBatchDownloadOptions = {},
 ): Promise<DownloadCountResult> {
   if (!items.length) return { succeededCount: 0, failedCount: 0 };
-  if (items.length === 1) {
+  if (items.length === 1 && !batchOptions.forceZip) {
     const item = items[0];
     await downloadInlineImageBlob(await item.loadBlob(), buildBlobDownloadBaseName(item), options);
     return { succeededCount: 1, failedCount: 0 };
   }
-  return downloadStreamItemsAsZip(items, options, archiveName);
+  return downloadStreamItemsAsZip(items, options, archiveName, batchOptions);
 }
 
 /**
@@ -150,15 +164,18 @@ export async function downloadInlineImageStreamItems(
  * @param items 流式下载项列表
  * @param options 下载配置
  * @param archiveName 压缩包文件名
+ * @param batchOptions 批量下载配置
  */
 async function downloadStreamItemsAsZip(
   items: DownloadableImageStreamItem[],
   options: InlineImageDownloadOptions,
   archiveName: string,
+  batchOptions: ImageBatchDownloadOptions,
 ): Promise<DownloadCountResult> {
   const zip = new DownloadJSZip();
   const usedPaths = new Set<string>();
   const result: DownloadCountResult = { succeededCount: 0, failedCount: 0 };
+  batchOptions.onProgress?.({ phase: 'images', completed: 0, total: items.length });
   for (const [index, item] of items.entries()) {
     try {
       const payload = await transformInlineImageForDownload(await item.loadBlob(), options);
@@ -167,11 +184,13 @@ async function downloadStreamItemsAsZip(
       result.succeededCount += 1;
     } catch (error) {
       result.failedCount += 1;
-      console.warn(`[CosmosVision] 图片转换失败，已跳过第 ${index + 1} 项`, error);
+      console.warn(`[CosmosVision] 图片加载或转换失败，已跳过第 ${index + 1} 项`, error);
     }
+    batchOptions.onProgress?.({ phase: 'images', completed: index + 1, total: items.length });
   }
   if (!result.succeededCount) throw new Error('没有可成功导出的图片');
   logFavoriteDownloadSkipSummary(result.failedCount);
+  batchOptions.onProgress?.({ phase: 'archive', completed: items.length, total: items.length });
   triggerBrowserDownload(await zip.generateAsync({ type: 'blob' }), archiveName);
   return result;
 }
@@ -321,7 +340,7 @@ function formatFavoriteTimestamp(timestamp: number): string {
  * @param failedCount 失败数量
  */
 function logFavoriteDownloadSkipSummary(failedCount: number): void {
-  if (failedCount > 0) console.warn(`[CosmosVision] ${failedCount} 张图片转换失败，已跳过`);
+  if (failedCount > 0) console.warn(`[CosmosVision] ${failedCount} 张图片加载或转换失败，已跳过`);
 }
 
 /**

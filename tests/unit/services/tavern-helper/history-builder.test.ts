@@ -27,6 +27,21 @@ describe('tavern-helper history-builder', () => {
   });
 
   describe('基本功能', () => {
+    it('NPC 和服装隐藏记录不混入历史，也不依赖外部正则是否正确安装', async () => {
+      mockGetChatMessages.mockReturnValue([
+        makeMessage(0, 'assistant', '正文<!-- cv-npcs {"npcs":[]} --><!-- cv-outfits {"updates":[]} -->'),
+      ]);
+      mockFormatAsTavernRegexedString.mockImplementation((text: string) => text);
+      const result = await buildRegexedHistory({
+        historyFloorCount: 1,
+        currentMessageIndex: 0,
+        ignoreUserMessages: true,
+        reverseOrder: false,
+      });
+      expect(result.text).toBe('正文');
+      expect(mockFormatAsTavernRegexedString).toHaveBeenCalledWith('正文', 'ai_output', 'prompt', { depth: 0 });
+    });
+
     it('TavernHelper 不可用时返回错误结果', async () => {
       (globalThis as any).TavernHelper = undefined;
 
@@ -110,7 +125,10 @@ describe('tavern-helper history-builder', () => {
     });
 
     it('可见的 system（Narrator）消息保留并按 ai_output 处理', async () => {
-      mockGetChatMessages.mockReturnValue([makeMessage(0, 'system', 'Narrator msg'), makeMessage(1, 'assistant', 'AI msg')]);
+      mockGetChatMessages.mockReturnValue([
+        makeMessage(0, 'system', 'Narrator msg'),
+        makeMessage(1, 'assistant', 'AI msg'),
+      ]);
 
       mockFormatAsTavernRegexedString.mockImplementation((text: string) => text);
 
@@ -195,11 +213,9 @@ describe('tavern-helper history-builder', () => {
     it('正则处理失败时降级到原始消息', async () => {
       mockGetChatMessages.mockReturnValue([makeMessage(0, 'user', 'Normal'), makeMessage(1, 'user', 'Error')]);
 
-      mockFormatAsTavernRegexedString
-        .mockReturnValueOnce('[regexed]Normal')
-        .mockImplementationOnce(() => {
-          throw new Error('Regex failed');
-        });
+      mockFormatAsTavernRegexedString.mockReturnValueOnce('[regexed]Normal').mockImplementationOnce(() => {
+        throw new Error('Regex failed');
+      });
 
       const result = await buildRegexedHistory({
         historyFloorCount: 10,

@@ -3,6 +3,13 @@
     <template #actions>
       <CvLayoutToggle v-model="layout" />
       <CvMiniButton
+        label="批量导出"
+        icon="fa-regular fa-file-export"
+        :title="`将当前筛选的 ${visibleItems.length} 张图片导出为 ZIP`"
+        :disabled="isSelectionToggleDisabled"
+        @click="exportFiltered"
+      />
+      <CvMiniButton
         :label="isSelecting ? '取消选择' : '选择'"
         icon="fa-regular fa-check-double"
         :disabled="isSelectionToggleDisabled"
@@ -84,6 +91,23 @@
             class="w-full"
           />
         </div>
+      </div>
+
+      <div
+        class="mb-(--cv-space-lg) text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)"
+        role="status"
+        aria-live="polite"
+      >
+        <template v-if="exportProgress">
+          {{
+            exportProgress.phase === 'archive'
+              ? '正在打包 ZIP…'
+              : `正在处理图片 ${exportProgress.completed} / ${exportProgress.total}`
+          }}
+        </template>
+        <template v-else
+          >当前筛选 {{ visibleItems.length }} 张；批量导出将打包为一个 ZIP，也可选择图片后导出。</template
+        >
       </div>
 
       <div v-if="visibleItems.length" v-bind="containerProps" class="max-h-(--cv-favorite-grid-max-h,36rem)">
@@ -335,7 +359,7 @@
             :disabled="busy || !visibleItems.length"
             @click="toggleSelectAll"
           />
-          <CvMiniButton label="下载" :disabled="!selectedCount || busy" @click="downloadSelected" />
+          <CvMiniButton label="导出选中" :disabled="!selectedCount || busy" @click="exportSelected" />
           <CvMiniButton label="删除" tone="error" :disabled="!selectedCount || busy" @click="deleteSelected" />
           <CvMiniButton label="取消" :disabled="busy" @click="clearSelection" />
         </div>
@@ -359,6 +383,7 @@ import CvMiniButton from '@/panel/components/CvMiniButton.vue';
 import LightboxImage from '@/panel/components/LightboxImage.vue';
 import { MACRO_POPOVER_BASE_Z_INDEX, type MacroPopoverInstance } from '@/panel/components/prompt-llm-macro-popover';
 import StaticPanel from '@/panel/components/StaticPanel.vue';
+import type { ImageDownloadProgress } from '@/services/inline-image/favorites-download';
 import {
   managedChatGroupId,
   type ManagedImageItem,
@@ -386,10 +411,12 @@ const props = defineProps<{
   items: ManagedImageItem[];
   loading: boolean;
   busy: boolean;
+  exportProgress?: ImageDownloadProgress | null;
 }>();
 
 const emit = defineEmits<{
   'download-items': [keys: string[]];
+  'export-items': [keys: string[]];
   'delete-items': [keys: string[]];
   'toggle-kind': [key: string];
 }>();
@@ -506,10 +533,19 @@ function toggleSelectAll(): void {
   selectedKeys.value = isAllSelected.value ? [] : visibleItems.value.map(item => item.key);
 }
 
-/** 批量下载当前已选图片 */
-function downloadSelected(): void {
+/** 导出当前筛选的全部图片，包含尚未滚动到的图片 */
+function exportFiltered(): void {
+  if (isSelectionToggleDisabled.value) return;
+  emit(
+    'export-items',
+    visibleItems.value.map(item => item.key),
+  );
+}
+
+/** 批量导出当前已选图片 */
+function exportSelected(): void {
   if (!selectedCount.value || props.busy) return;
-  emit('download-items', selectedKeys.value);
+  emit('export-items', [...selectedKeys.value]);
 }
 
 /** 批量删除当前已选图片 */

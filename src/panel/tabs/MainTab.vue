@@ -83,7 +83,9 @@
         :items="managedImageItems"
         :loading="isManagedImagesLoading"
         :busy="isManagedImagesBusy"
+        :export-progress="managedExportProgress"
         @download-items="downloadManagedItems"
+        @export-items="exportManagedItems"
         @delete-items="deleteManagedItems"
         @toggle-kind="toggleManagedItemKind"
       />
@@ -132,7 +134,9 @@ import {
 import {
   downloadInlineImageStreamItems,
   type DownloadableImageStreamItem,
+  type ImageDownloadProgress,
 } from '@/services/inline-image/favorites-download';
+import { formatTimestampForFileName } from '@/services/inline-image/filename-utils';
 import { convertManagedImageKind, type ConvertImageKindResult } from '@/services/inline-image/managed-kind-toggle';
 import {
   loadImageBlob,
@@ -193,6 +197,7 @@ const favoriteMetas = ref<InlineImageFavoriteMeta[]>([]);
 const temporaryMetas = ref<TemporaryImageMeta[]>([]);
 const isManagedImagesLoading = ref(false);
 const isManagedImagesBusy = ref(false);
+const managedExportProgress = ref<ImageDownloadProgress | null>(null);
 const isCleanupBusy = ref(false);
 let managedRefreshGeneration = 0;
 let managedLocalVersion = 0;
@@ -442,17 +447,46 @@ function syncManagedKindSession(item: ManagedImageItem, result: ConvertImageKind
 }
 
 /**
- * 批量下载选中的管理图片（按类型分桶）
+ * 下载管理图片，单张直下，多张统一打包
  * @param keys 复合 key 列表
  */
 async function downloadManagedItems(keys: string[]): Promise<void> {
-  const buckets = partitionManagedItems(keys, managedImageItems.value);
-  if (!buckets.favoriteItems.length && !buckets.temporaryItems.length) return;
-  const options = await requestInlineImageDownloadOptions();
-  if (!options) return;
+  await downloadManagedImageItems(keys, false);
+}
+
+/** 将筛选或选中的图片统一导出为一个 ZIP */
+async function exportManagedItems(keys: string[]): Promise<void> {
+  await downloadManagedImageItems(keys, true);
+}
+
+/** 固定本次导出范围，逐张读取图片并反馈进度与跳过数量 */
+async function downloadManagedImageItems(keys: string[], forceZip: boolean): Promise<void> {
+  const selectedKeys = new Set(keys);
+  const items = managedImageItems.value.filter(item => selectedKeys.has(item.key));
+  if (!items.length) return;
   await runManagedAction(async () => {
-    const errors = await downloadManagedBuckets(buckets, options);
-    toastManagedErrors('下载', errors);
+    const options = await requestInlineImageDownloadOptions();
+    if (!options) return;
+    try {
+      const result = await downloadInlineImageStreamItems(
+        toStreamDownloadItems(items),
+        options,
+        `cosmos-vision-images-${formatTimestampForFileName(Date.now())}.zip`,
+        {
+          forceZip,
+          onProgress: progress => {
+            managedExportProgress.value = progress;
+          },
+        },
+      );
+      if (result.failedCount) {
+        toastr.warning(`已导出 ${result.succeededCount} 张图片，${result.failedCount} 张加载或转换失败，已跳过`);
+      } else {
+        toastr.success(`已导出 ${result.succeededCount} 张图片`);
+      }
+    } finally {
+      managedExportProgress.value = null;
+    }
   }, '下载选中图片失败');
 }
 
@@ -462,31 +496,6 @@ async function downloadManagedItems(keys: string[]): Promise<void> {
  */
 async function requestInlineImageDownloadOptions(): Promise<InlineImageDownloadOptions | null> {
   return requestImageDownloadOptions ? requestImageDownloadOptions() : null;
-}
-
-/**
- * 按类型分桶下载（流式按需加载），失败标签汇总；部分图片加载失败时跳过并提示用户
- * @param buckets 分桶结果
- * @param options 下载配置
- */
-async function downloadManagedBuckets(
-  buckets: ManagedItemBuckets,
-  options: InlineImageDownloadOptions,
-): Promise<string[]> {
-  const errors: string[] = [];
-  let skippedCount = 0;
-  const downloadBucket = async (items: ManagedImageItem[], archiveName: string) => {
-    skippedCount += (await downloadInlineImageStreamItems(toStreamDownloadItems(items), options, archiveName))
-      .failedCount;
-  };
-  await pushManagedStepError(errors, '收藏', '下载选中收藏图片失败', buckets.favoriteItems.length, () =>
-    downloadBucket(buckets.favoriteItems, 'cosmos-vision-selected-favorites.zip'),
-  );
-  await pushManagedStepError(errors, '临时', '下载选中临时图片失败', buckets.temporaryItems.length, () =>
-    downloadBucket(buckets.temporaryItems, 'cosmos-vision-selected-temporary.zip'),
-  );
-  if (skippedCount) toastr.warning(`有 ${skippedCount} 张图片加载失败，已跳过导出`);
-  return errors;
 }
 
 /**
@@ -594,30 +603,6 @@ function applyManagedDeleteLocalPatch(result: ManagedDeleteResult): void {
   const removedTemporaryIds = new Set(result.temporaryIds);
   favoriteMetas.value = favoriteMetas.value.filter(meta => !removedFavoriteIds.has(meta.id));
   temporaryMetas.value = temporaryMetas.value.filter(meta => !removedTemporaryIds.has(meta.id));
-}
-
-/**
- * 有任务时执行管理步骤，失败则写入类型标签
- * @param errors 失败标签列表
- * @param label 类型标签
- * @param logMessage 控制台错误文案
- * @param count 待处理数量（0 则跳过）
- * @param action 异步操作
- */
-async function pushManagedStepError(
-  errors: string[],
-  label: string,
-  logMessage: string,
-  count: number,
-  action: () => Promise<unknown>,
-): Promise<void> {
-  if (!count) return;
-  try {
-    await action();
-  } catch (error) {
-    console.error(logMessage, error);
-    errors.push(label);
-  }
 }
 
 /**
@@ -768,7 +753,9 @@ function reportOrphanCleanupResult(result: SlotBindingCleanupResult): void {
     return;
   }
   if (result.reason === 'cancelled') return;
-  toastr.success(`已清除 ${result.orphanShortcodeCount} 枚失效绑定码、${result.orphanTemporaryImageCount} 张残留临时图`);
+  toastr.success(
+    `已清除 ${result.orphanShortcodeCount} 枚失效绑定码、${result.orphanTemporaryImageCount} 张残留临时图`,
+  );
 }
 
 /**

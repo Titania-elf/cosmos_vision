@@ -16,6 +16,7 @@ import { buildAutoParticipantRuntimeContent, safeRenderPromptTemplate } from '@/
 import { readChatProfiles } from '@/services/prompt-profiles/chat-store';
 import { buildImageOutfitContext } from '@/services/outfit-continuity/runtime';
 import { stripOutfitRecords } from '@/services/outfit-continuity/timeline';
+import { stripNpcRecords } from '@/services/npc-library/records';
 import { buildCompositionInstruction } from '@/services/image-composition';
 import { readNpcLibraryEntries } from '@/services/npc-library/store';
 import { getCurrentCharacterKey } from '@/services/tavern-helper/prompt-profiles-context';
@@ -155,6 +156,12 @@ export async function buildPromptLlmRuntimeContent(
   > &
     Partial<Pick<PromptLlmSettings, 'autoComposition'>>,
 ): Promise<PromptLlmRuntimeContent> {
+  context = {
+    ...context,
+    historyParagraphs: context.historyParagraphs.map(stripNpcRecords),
+    focusParagraph: stripNpcRecords(context.focusParagraph),
+    focusMessageText: context.focusMessageText === undefined ? undefined : stripNpcRecords(context.focusMessageText),
+  };
   const [autoResult, profilesResult] = await Promise.all([
     settings?.autoCharacterInfo ? buildAutoParticipantRuntimeContent(context, settings) : Promise.resolve(null),
     buildPromptProfilesRuntimeContent(context, promptProfiles),
@@ -172,9 +179,9 @@ export async function buildPromptLlmRuntimeContent(
 
   const base = autoResult ?? profilesResult;
   return {
-    historyContent: stripOutfitRecords(base.historyContent),
+    historyContent: stripNpcRecords(stripOutfitRecords(base.historyContent)),
     participantContent,
-    focusParagraphContent: stripOutfitRecords(base.focusParagraphContent),
+    focusParagraphContent: stripNpcRecords(stripOutfitRecords(base.focusParagraphContent)),
     specialRequestContent: buildSpecialRequestContent(context.specialRequest),
     outfitContent: buildImageOutfitContext(context),
     compositionContent: buildCompositionInstruction(settings?.autoComposition),

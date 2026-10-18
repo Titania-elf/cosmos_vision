@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createNpcLibraryEntry, NPC_LIBRARY_GLOBAL_GROUP, type NpcLibraryEntry } from '@/constants/npc-library';
+import { DEFAULT_SETTINGS } from '@/constants/default-settings';
 
 vi.mock('@/services/npc-library/store', () => ({
   readNpcLibraryEntries: vi.fn(),
@@ -11,7 +12,11 @@ vi.mock('@/services/tavern-helper/prompt-profiles-context', () => ({
 
 import { readNpcLibraryEntries } from '@/services/npc-library/store';
 import { getCurrentCharacterKey } from '@/services/tavern-helper/prompt-profiles-context';
-import { buildNpcLibraryParticipants, npcEntryToPromptPerson } from '@/services/prompt-profiles/runtime';
+import {
+  buildNpcLibraryParticipants,
+  buildPromptLlmRuntimeContent,
+  npcEntryToPromptPerson,
+} from '@/services/prompt-profiles/runtime';
 
 const mockedReadEntries = vi.mocked(readNpcLibraryEntries);
 const mockedGetGroup = vi.mocked(getCurrentCharacterKey);
@@ -45,6 +50,23 @@ describe('buildNpcLibraryParticipants', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetGroup.mockReturnValue('Story A');
+  });
+
+  it('隐藏记录中的名字不触发额外 NPC 注入，记录也不进入生图正文上下文', async () => {
+    mockedReadEntries.mockReturnValue([makeEntry({ name: 'Aiko' })]);
+    const hidden = '<!-- cv-npcs {"npcs":[{"name":"Aiko"}]} -->';
+    const result = await buildPromptLlmRuntimeContent(
+      {
+        historyParagraphs: [`An empty room.${hidden}`],
+        focusParagraph: `An empty room.${hidden}`,
+        specialRequest: '',
+      },
+      DEFAULT_SETTINGS.promptProfiles,
+      { autoCharacterInfo: false, historyFloorCount: 0, ignoreUserMessagesInHistory: true, useNpcLibrary: true },
+    );
+    expect(result.historyContent).toBe('An empty room.');
+    expect(result.focusParagraphContent).toBe('An empty room.');
+    expect(result.participantContent).not.toContain('Aiko');
   });
 
   it('injects a matching NPC of the current story group', async () => {

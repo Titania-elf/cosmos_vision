@@ -2,6 +2,7 @@ import type { PromptLlmContext, PromptLlmSettings } from '@/constants/novelai';
 import { chat } from '@sillytavern/script';
 import { stripSlotShortcodes } from '@/services/inline-image/slot-shortcode';
 import { stripOutfitRecords } from '@/services/outfit-continuity/timeline';
+import { stripNpcRecords } from '@/services/npc-library/records';
 import { readPromptLlmHistoryMessages } from '@/services/tavern-helper/chat-history';
 import { buildRegexedHistory } from '@/services/tavern-helper/history-builder';
 import {
@@ -345,7 +346,7 @@ export function readSelectableUnitText(element: HTMLElement): string {
  * @returns 去除源码后的历史文本
  */
 export function stripFrontendSourceMarkup(value: string): string {
-  return stripOutfitRecords(value)
+  return stripNpcRecords(stripOutfitRecords(value))
     .replace(/<!doctype\s+html\b[\s\S]*?<\/html\s*>/gi, '')
     .replace(/<html\b[\s\S]*?<\/html\s*>/gi, '')
     .replace(/<(title|style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
@@ -463,7 +464,7 @@ export async function buildPromptLlmContextFromParagraphs(
     specialRequest: '',
     messageIndex,
     ...(paragraphIndex > 0 ? { paragraphIndex } : {}),
-    focusMessageText: stripOutfitRecords(currentParagraphs.join('\n\n')),
+    focusMessageText: stripNpcRecords(stripOutfitRecords(currentParagraphs.join('\n\n'))),
   };
 }
 

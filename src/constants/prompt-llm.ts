@@ -107,7 +107,7 @@ export interface PromptLlmSettings {
   autoCharacterInfo: boolean;
   /** 是否启用 NPC 外观维护库,命中当前故事的 NPC 自动注入 participant_context */
   useNpcLibrary: boolean;
-  /** 是否在 AI 消息生成后后台自动扫描并更新 NPC 库(默认关) */
+  /** 是否附加配角建档规则：仅为明确配角建档/补全外观，跳过具名路人(默认关，无额外 API 调用) */
   autoUpdateNpcLibrary: boolean;
   /** 同一次提示词生成请求决定画面方向与尺寸。 */
   autoComposition: ImageCompositionSettings;

@@ -13,11 +13,12 @@ export const NPC_LIBRARY_GLOBAL_GROUP = '__global__';
 /** 通用分组的展示名 */
 export const NPC_LIBRARY_GLOBAL_GROUP_LABEL = '通用';
 
-/** 手动扫描当前聊天时向前追溯的楼层数 */
-export const NPC_SCAN_FLOOR_COUNT = 30;
-
-/** 后台自动更新时,以触发消息结尾向前追溯的楼层数(含该楼) */
-export const NPC_AUTO_SCAN_FLOOR_COUNT = 2;
+/** 自动建档的配角判断，避免把具名路人入库。 */
+export const NPC_SUPPORTING_ROLE_RULES = `先判断人物是否为配角，再提取外观。有姓名、外貌描写、单次台词或多次被提及，都不等于配角。
+配角须在正文或人物资料中有明确依据：具有持续的人物关系（如同伴、家人、朋友、对手），或作为独立人物承担明确的剧情作用、实质参与主要互动。不能只凭姓名、职业或外貌推测其后续重要性。
+仅负责临时问路、结账、服务、传话或充当背景的一次性人物，即使有姓名和外貌，也归为 incidental；泛称路人、只被提到/回忆/设想的人物以及主角、用户本人不建档。
+首次出场已明确是配角即可建档，无须等第二次出现；证据不足时归为 uncertain，先跳过，后续剧情明确其配角身份后再建档。重复出现本身不能作为升级为配角的理由。
+role 只允许 supporting（明确配角）、incidental（路人/临时人物）、uncertain（尚不确定）。仅输出 role 为 supporting 的人物；不能为了建档而把所有有名字的人都标为 supporting。`;
 
 /** NPC 库条目 */
 export interface NpcLibraryEntry {
@@ -29,11 +30,11 @@ export interface NpcLibraryEntry {
   /** 别名/触发关键词(name 会隐式并入触发词) */
   aliases: string[];
   enabled: boolean;
-  /** 锁定后不被半自动/全自动更新覆盖(留给后续阶段) */
+  /** 锁定后不被自动补全覆盖 */
   locked: boolean;
   /** 触发模式:always 始终注入,keyword 命中关键词才注入 */
   insertMode: PromptPersonInsertMode;
-  /** 长期外观锚点的 danbooru tag 串(逗号分隔纯文本) */
+  /** 身体外观锚点的 danbooru tag 串，不含服装和配饰(逗号分隔纯文本) */
   staticTags: string;
   /** 自由文本外观补充(可选,给 LLM 参考) */
   appearanceNote: string;
@@ -63,11 +64,7 @@ export function createNpcLibrarySettings(): NpcLibrarySettings {
  * @param aliases 触发别名
  * @returns 新的库条目
  */
-export function createNpcLibraryEntry(
-  name: string,
-  group: string,
-  aliases: string[] = [],
-): NpcLibraryEntry {
+export function createNpcLibraryEntry(name: string, group: string, aliases: string[] = []): NpcLibraryEntry {
   const trimmedName = name.trim() || '未命名 NPC';
   return {
     id: uuidv4(),

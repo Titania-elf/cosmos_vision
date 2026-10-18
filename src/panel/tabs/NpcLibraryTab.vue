@@ -6,32 +6,28 @@
           <span>分组筛选</span>
           <Select v-model="groupFilter" :options="groupFilterOptions" option-label="label" option-value="value" fluid />
         </label>
-        <div class="flex gap-(--cv-space-sm)">
-          <Button label="新建 NPC" icon="fa-solid fa-user-plus" outlined class="flex-1" @click="createBlankNpc" />
-          <Button
-            label="从当前聊天导入"
-            icon="fa-solid fa-file-import"
-            outlined
-            class="flex-1"
-            @click="importFromChatProfiles"
-          />
-        </div>
-        <Button
-          label="从当前聊天扫描外观"
-          icon="fa-solid fa-wand-magic-sparkles"
-          :loading="scanning"
-          class="w-full"
-          @click="runScan"
-        />
-        <div class="flex flex-col gap-(--cv-space-sm) rounded-(--cv-radius-sm) bg-(--cv-surface-container-low) p-(--cv-space-lg)">
+        <Button label="新建 NPC" icon="fa-solid fa-user-plus" outlined class="w-full" @click="createBlankNpc" />
+        <div
+          class="flex flex-col gap-(--cv-space-sm) rounded-(--cv-radius-sm) bg-(--cv-surface-container-low) p-(--cv-space-lg)"
+        >
           <label class="flex items-center justify-between gap-(--cv-space-md) text-(length:--cv-font-size-xs)">
             <span>生图时自动注入命中的 NPC</span>
             <CvMiniToggleSwitch v-model="useNpcLibrary" aria-label="自动注入 NPC" />
           </label>
           <label class="flex items-center justify-between gap-(--cv-space-md) text-(length:--cv-font-size-xs)">
-            <span>AI 回复后后台自动更新库<br /><span class="text-(--cv-on-surface-variant)">消耗额外 LLM 请求，默认关闭</span></span>
-            <CvMiniToggleSwitch v-model="autoUpdateNpcLibrary" aria-label="后台自动更新 NPC 库" />
+            <span
+              >配角首次出场自动建档<br /><span class="text-(--cv-on-surface-variant)"
+                >可选，默认关闭；随正文按需记录，不额外调用 API</span
+              ></span
+            >
+            <CvMiniToggleSwitch v-model="autoUpdateNpcLibrary" aria-label="配角首次出场自动建档" />
           </label>
+          <div class="cv-field-hint">
+            开启后才向主模型附加建档规则。仅收录有明确剧情作用或持续人物关系的配角；具名路人、一次性人物跳过，身份不明确时暂不建档。
+          </div>
+          <div class="cv-field-hint">
+            已确认的配角无外貌描写时先建姓名档案，后续补全。只保存身体外观，不含服装与配饰。关闭后仍可手动新建。
+          </div>
         </div>
       </div>
 
@@ -114,7 +110,7 @@
               <span>外观固定 tag</span>
               <div class="cv-field-control">
                 <CvExpandableTextarea v-model="entry.staticTags" rows="3" auto-resize class="w-full font-mono" />
-                <div class="cv-field-hint">长期外观锚点（发色、瞳色、体型、标志性服饰），会原样注入并强调保留</div>
+                <div class="cv-field-hint">身体外观锚点（发色、发型、瞳色、肤色、体型、种族等），不包含服装与配饰</div>
               </div>
             </div>
 
@@ -122,20 +118,18 @@
               <span>外观补充说明（可选）</span>
               <div class="cv-field-control">
                 <CvExpandableTextarea v-model="entry.appearanceNote" rows="2" auto-resize class="w-full" />
-                <div class="cv-field-hint">标签表达不了的外观细节，作为自然语言补充</div>
+                <div class="cv-field-hint">标签表达不了的身体外观细节，不填写服装、配饰与临时状态</div>
               </div>
             </label>
 
             <div class="flex flex-wrap items-center justify-between gap-(--cv-space-md)">
-              <label class="flex items-center gap-(--cv-space-sm) text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">
+              <label
+                class="flex items-center gap-(--cv-space-sm) text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)"
+              >
                 <CvMiniToggleSwitch v-model="entry.locked" aria-label="锁定" />
-                <span>锁定（不被自动更新覆盖）</span>
+                <span>锁定（不被自动补全覆盖）</span>
               </label>
-              <CvMiniButton
-                label="导入到当前聊天"
-                icon="fa-regular fa-file-export"
-                @click="importToChat(entry)"
-              />
+              <CvMiniButton label="导入到当前聊天" icon="fa-regular fa-file-export" @click="importToChat(entry)" />
             </div>
           </section>
         </CollapsiblePanelItem>
@@ -149,7 +143,6 @@
         <span class="text-(length:--cv-font-size-xs)">NPC 库跨聊天保存，命中当前故事时会自动注入生图提示词</span>
       </section>
     </div>
-    <NpcScanDialog v-model:visible="scanDialogVisible" :plans="scanPlans" @apply="applyScanPlans" />
   </div>
 </template>
 <script setup lang="ts">
@@ -157,21 +150,16 @@ import CollapsiblePanelItem from '@/panel/components/CollapsiblePanelItem.vue';
 import CvExpandableTextarea from '@/panel/components/CvExpandableTextarea.vue';
 import CvMiniButton from '@/panel/components/CvMiniButton.vue';
 import CvMiniToggleSwitch from '@/panel/components/CvMiniToggleSwitch.vue';
-import NpcScanDialog from '@/panel/components/NpcScanDialog.vue';
 import { event_types, eventSource } from '@sillytavern/script';
 import {
   NPC_LIBRARY_GLOBAL_GROUP,
-  NPC_SCAN_FLOOR_COUNT,
   createNpcLibraryEntry,
   getNpcGroupLabel,
   type NpcLibraryEntry,
 } from '@/constants/npc-library';
 import type { PromptPersonInsertMode } from '@/constants/novelai';
-import { scanNpcCandidatesFromCurrentChat } from '@/services/npc-library/scan';
-import { applyNpcMergePlans, planNpcMerges, type NpcMergePlan } from '@/services/npc-library/merge';
 import { useSettingsStore } from '@/store/settings';
 import { npcEntryToPromptPerson } from '@/services/prompt-profiles/runtime';
-import { promptPersonToNpcEntry } from '@/services/npc-library/convert';
 import { persistChatProfiles, readChatProfiles } from '@/services/prompt-profiles/chat-store';
 import { getCurrentCharacterKey } from '@/services/tavern-helper/prompt-profiles-context';
 
@@ -198,7 +186,23 @@ const showConfirm = inject<ShowConfirm>('showConfirm');
 
 // 本地工作副本；库即时落盘：任何深度变更后立即写回已应用配置(与 LoRA 预设一致)
 const entries = ref<NpcLibraryEntry[]>(cloneEntries(settingsStore.savedSettings.npcLibrary.entries));
-watch(entries, value => settingsStore.applyNpcLibrarySettings({ entries: cloneEntries(value) }), { deep: true });
+watch(
+  entries,
+  value => {
+    if (JSON.stringify(value) !== JSON.stringify(settingsStore.savedSettings.npcLibrary.entries)) {
+      settingsStore.applyNpcLibrarySettings({ entries: cloneEntries(value) });
+    }
+  },
+  { deep: true, flush: 'sync' },
+);
+// 自动建档可以发生在面板打开期间；同步外部变更，避免下一次编辑覆盖新档案。
+watch(
+  () => settingsStore.savedSettings.npcLibrary.entries,
+  value => {
+    if (JSON.stringify(value) !== JSON.stringify(entries.value)) entries.value = cloneEntries(value);
+  },
+  { deep: true, flush: 'sync' },
+);
 
 const currentGroupKey = ref<string | null>(getCurrentCharacterKey());
 const refreshCurrentGroup = (): void => {
@@ -211,10 +215,6 @@ const groupFilter = ref<string>('all');
 const activeEntryId = ref<string | null>(null);
 const editingEntryId = ref<string | null>(null);
 const editingDraft = ref('');
-
-const scanning = ref(false);
-const scanDialogVisible = ref(false);
-const scanPlans = ref<NpcMergePlan[]>([]);
 
 // NPC 库两个开关即时生效（不走设置草稿）
 const useNpcLibrary = computed({
@@ -248,7 +248,7 @@ const filteredEntries = computed(() =>
   groupFilter.value === 'all' ? entries.value : entries.value.filter(entry => entry.group === groupFilter.value),
 );
 
-/** 新建/导入的默认落点分组：已筛选具体分组时用它，否则当前故事组，再否则通用组 */
+/** 新建的默认落点分组：已筛选具体分组时用它，否则当前故事组，再否则通用组 */
 const defaultTargetGroup = computed(() => {
   if (groupFilter.value !== 'all') return groupFilter.value;
   return currentGroupKey.value ?? NPC_LIBRARY_GLOBAL_GROUP;
@@ -256,41 +256,9 @@ const defaultTargetGroup = computed(() => {
 
 const emptyStateText = computed(() =>
   groupFilter.value === 'all'
-    ? '还没有任何 NPC，点击上方按钮新建，或从当前聊天档案导入'
+    ? '还没有任何 NPC，可点击上方按钮新建，或开启配角首次出场自动建档'
     : `分组「${getNpcGroupLabel(groupFilter.value)}」下还没有 NPC`,
 );
-/**
- * 从当前聊天扫描 NPC 外观并生成合并方案，弹出确认弹窗
- */
-async function runScan(): Promise<void> {
-  if (scanning.value) return;
-  scanning.value = true;
-  try {
-    const candidates = await scanNpcCandidatesFromCurrentChat(settingsStore.savedSettings.promptLlm, NPC_SCAN_FLOOR_COUNT);
-    if (!candidates.length) {
-      toastr.info('没有从当前聊天里识别到可入库的 NPC');
-      return;
-    }
-    scanPlans.value = planNpcMerges(candidates, entries.value, defaultTargetGroup.value);
-    scanDialogVisible.value = true;
-  } catch (error) {
-    toastr.error((error as Error).message || 'NPC 扫描失败');
-  } finally {
-    scanning.value = false;
-  }
-}
-
-/**
- * 应用扫描确认弹窗里勾选的合并方案
- */
-function applyScanPlans(): void {
-  const merged = applyNpcMergePlans(scanPlans.value, entries.value, '聊天扫描');
-  const changed = merged.length - entries.value.length;
-  entries.value = merged;
-  scanDialogVisible.value = false;
-  toastr.success(changed > 0 ? `已写入 ${changed} 个新 NPC，并更新已有条目` : '已按扫描结果更新 NPC 库');
-}
-
 /**
  * 折叠/展开指定 NPC 面板
  * @param id 条目 id
@@ -358,28 +326,6 @@ function importToChat(entry: NpcLibraryEntry): void {
   }
   persistChatProfiles([...existing, person]);
   toastr.success(`已将「${person.name}」导入当前聊天档案`);
-}
-
-/**
- * 从当前聊天的角色档案导入到库（聊天 → 库，同组同名跳过）
- */
-function importFromChatProfiles(): void {
-  const targetGroup = defaultTargetGroup.value;
-  const profiles = readChatProfiles().filter(person => person.kind === 'character');
-  if (!profiles.length) {
-    toastr.info('当前聊天没有可导入的角色档案');
-    return;
-  }
-  const existingKeys = new Set(entries.value.map(entry => `${entry.group}\u0000${entry.name.trim().toLowerCase()}`));
-  const imported = profiles
-    .filter(person => !existingKeys.has(`${targetGroup}\u0000${person.name.trim().toLowerCase()}`))
-    .map(person => promptPersonToNpcEntry(person, targetGroup));
-  if (!imported.length) {
-    toastr.info('没有新的角色可导入（同组同名已存在）');
-    return;
-  }
-  entries.value = [...imported, ...entries.value];
-  toastr.success(`已从当前聊天导入 ${imported.length} 个 NPC 到分组「${getNpcGroupLabel(targetGroup)}」`);
 }
 </script>
 
