@@ -44,6 +44,7 @@ import { chat, event_types, eventSource } from '@sillytavern/script';
 import { useSettingsStore } from '@/store/settings';
 import { deleteTemporaryImage, listTemporaryImages, pruneTemporaryImages } from '@/services/inline-image/temporary-images';
 import { pruneFloorTailSlotsAboveMesId } from '@/services/inline-image/floor-tail-slot';
+import { ensureShadowMountTarget, getShadowContentRoot, teardownShadowMount } from '@/services/inline-image/shadow-mount';
 
 /** 管理页类型互换后的画廊就地补丁（保留 objectUrl，避免闪烁） */
 export type GalleryKindPatch =
@@ -65,6 +66,7 @@ export interface GalleryMountRuntime {
   key: string;
   messageId: number;
   element: HTMLElement;
+  teleportTarget: HTMLElement;
   mountKey: GalleryMountSpec['mountKey'];
   anchor: InlineFavoriteAnchor;
   generatedItem: GallerySessionItem | null;
@@ -255,6 +257,7 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
     unbindEvents();
     unwatchMountLiveness();
     removeAllRenderContainers();
+    teardownShadowMount();
     runtimes.value = [];
     clearAllGallerySessions();
     floorTailAnchors.clear();
@@ -405,8 +408,12 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
     const container = findRenderContainerAfter(target)
       ?? (target.classList.contains('cv-render') ? target : target.querySelector('.cv-render'));
     if (!container) return null;
-    return container.querySelector('.cv-inline-generation-overlay-shell')
-      ?? container.querySelector('.cv-inline-img-wrap')
+    const shadow = container.shadowRoot;
+    return shadow?.querySelector<HTMLElement>('.cv-inline-generation-overlay-shell')
+      ?? shadow?.querySelector<HTMLElement>('.cv-inline-img-wrap')
+      ?? container.querySelector<HTMLElement>('.cv-inline-generation-overlay-shell')
+      ?? container.querySelector<HTMLElement>('.cv-inline-img-wrap')
+      ?? getShadowContentRoot(container)
       ?? container;
   }
 
@@ -614,6 +621,7 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
       current.mountKey = mount.mountKey;
       current.anchor = toMountRuntime(mount).anchor;
       current.generatedItem = session.items[0] ?? null;
+      current.teleportTarget = markRaw(ensureShadowMountTarget(current.element));
       return;
     }
     existing.mounts.push(toMountRuntime(mount));
@@ -649,6 +657,7 @@ export const useGalleryRuntimesStore = defineStore('cosmos_vision_gallery_runtim
       current.mountKey = mount.mountKey;
       current.anchor = toMountRuntime(mount).anchor;
       current.generatedItem = session.items[0] ?? null;
+      current.teleportTarget = markRaw(ensureShadowMountTarget(current.element));
       return;
     }
     existing.mounts.push(toMountRuntime(mount));
@@ -817,6 +826,7 @@ function toMountRuntime(mount: GalleryMountSpec): GalleryMountRuntime {
     key: mount.key,
     messageId: mount.messageId,
     element: markRaw(mount.element),
+    teleportTarget: markRaw(ensureShadowMountTarget(mount.element)),
     mountKey: mount.mountKey,
     generatedItem: null,
     kindPatch: null,

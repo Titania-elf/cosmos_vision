@@ -6,6 +6,7 @@ export const chat_metadata: Record<string, unknown> = {};
 /** 保存当前聊天 mock */
 export const saveChatDebounced = () => {};
 
+/** 测试用聊天消息数组（chat-dom 经此读取楼层消息） */
 export const chat: Array<{
   mes: string;
   is_user?: boolean;
