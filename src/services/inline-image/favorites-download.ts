@@ -31,11 +31,10 @@ export interface ImageDownloadProgress {
 }
 
 export interface ImageBatchDownloadOptions {
-  /** 批量导出即使只有一张图片也生成 ZIP */
-  forceZip?: boolean;
   onProgress?: (progress: ImageDownloadProgress) => void;
 }
 
+const DIRECT_DOWNLOAD_LIMIT = 30;
 const DownloadJSZip = JSZip as unknown as DownloadZipConstructor;
 const DEFAULT_ARCHIVE_NAME = 'cosmos-vision-inline-image-favorites.zip';
 const SELECTED_ARCHIVE_NAME = 'cosmos-vision-selected-favorites.zip';
@@ -122,7 +121,7 @@ export interface DownloadableImageStreamItem {
  * 批量下载任意 Blob 图片列表（临时图等复用）
  * @param items 图片 Blob 列表
  * @param options 下载配置
- * @param archiveName 多图时的 ZIP 文件名
+ * @param archiveName 超过 30 张时的 ZIP 文件名
  */
 export async function downloadInlineImageBlobItems(
   items: DownloadableImageBlobItem[],
@@ -137,11 +136,11 @@ export async function downloadInlineImageBlobItems(
 }
 
 /**
- * 批量下载流式图片列表（逐张按需加载，单张失败跳过并计数）
+ * 批量下载流式图片列表：30 张及以下逐张下载，超过 30 张打包；单张失败跳过并计数
  * @param items 流式下载项列表
  * @param options 下载配置
- * @param archiveName 多图时的 ZIP 文件名
- * @param batchOptions 强制打包与处理进度回调
+ * @param archiveName 超过 30 张时的 ZIP 文件名
+ * @param batchOptions 处理进度回调
  * @returns 成功/失败计数（部分失败已跳过，全失败抛错）
  */
 export async function downloadInlineImageStreamItems(
@@ -151,36 +150,21 @@ export async function downloadInlineImageStreamItems(
   batchOptions: ImageBatchDownloadOptions = {},
 ): Promise<DownloadCountResult> {
   if (!items.length) return { succeededCount: 0, failedCount: 0 };
-  if (items.length === 1 && !batchOptions.forceZip) {
-    const item = items[0];
-    await downloadInlineImageBlob(await item.loadBlob(), buildBlobDownloadBaseName(item), options);
-    return { succeededCount: 1, failedCount: 0 };
-  }
-  return downloadStreamItemsAsZip(items, options, archiveName, batchOptions);
-}
-
-/**
- * 将流式图片列表导出为 ZIP（逐张按需加载）
- * @param items 流式下载项列表
- * @param options 下载配置
- * @param archiveName 压缩包文件名
- * @param batchOptions 批量下载配置
- */
-async function downloadStreamItemsAsZip(
-  items: DownloadableImageStreamItem[],
-  options: InlineImageDownloadOptions,
-  archiveName: string,
-  batchOptions: ImageBatchDownloadOptions,
-): Promise<DownloadCountResult> {
-  const zip = new DownloadJSZip();
+  const zip = items.length > DIRECT_DOWNLOAD_LIMIT ? new DownloadJSZip() : null;
   const usedPaths = new Set<string>();
   const result: DownloadCountResult = { succeededCount: 0, failedCount: 0 };
   batchOptions.onProgress?.({ phase: 'images', completed: 0, total: items.length });
   for (const [index, item] of items.entries()) {
     try {
       const payload = await transformInlineImageForDownload(await item.loadBlob(), options);
-      const path = getUniquePath(buildBlobZipEntryName(item, index, payload.extension), usedPaths);
-      zip.file(path, payload.blob);
+      const path = getUniquePath(
+        zip
+          ? buildBlobZipEntryName(item, index, payload.extension)
+          : `${buildBlobDownloadBaseName(item)}.${payload.extension}`,
+        usedPaths,
+      );
+      if (zip) zip.file(path, payload.blob);
+      else triggerBrowserDownload(payload.blob, path);
       result.succeededCount += 1;
     } catch (error) {
       result.failedCount += 1;
@@ -190,8 +174,10 @@ async function downloadStreamItemsAsZip(
   }
   if (!result.succeededCount) throw new Error('没有可成功导出的图片');
   logFavoriteDownloadSkipSummary(result.failedCount);
-  batchOptions.onProgress?.({ phase: 'archive', completed: items.length, total: items.length });
-  triggerBrowserDownload(await zip.generateAsync({ type: 'blob' }), archiveName);
+  if (zip) {
+    batchOptions.onProgress?.({ phase: 'archive', completed: items.length, total: items.length });
+    triggerBrowserDownload(await zip.generateAsync({ type: 'blob' }), archiveName);
+  }
   return result;
 }
 

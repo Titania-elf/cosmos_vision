@@ -5,7 +5,7 @@
       <CvMiniButton
         label="批量导出"
         icon="fa-regular fa-file-export"
-        :title="`将当前筛选的 ${visibleItems.length} 张图片导出为 ZIP`"
+        :title="`导出当前筛选的 ${visibleItems.length} 张图片：30 张及以下逐张下载，超过 30 张打包为 ZIP`"
         :disabled="isSelectionToggleDisabled"
         @click="exportFiltered"
       />
@@ -106,7 +106,8 @@
           }}
         </template>
         <template v-else
-          >当前筛选 {{ visibleItems.length }} 张；批量导出将打包为一个 ZIP，也可选择图片后导出。</template
+          >当前筛选 {{ visibleItems.length }} 张；30 张及以下逐张下载，超过 30 张打包为
+          ZIP，也可选择图片后导出。</template
         >
       </div>
 

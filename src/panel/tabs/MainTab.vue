@@ -85,7 +85,7 @@
         :busy="isManagedImagesBusy"
         :export-progress="managedExportProgress"
         @download-items="downloadManagedItems"
-        @export-items="exportManagedItems"
+        @export-items="downloadManagedItems"
         @delete-items="deleteManagedItems"
         @toggle-kind="toggleManagedItemKind"
       />
@@ -447,20 +447,10 @@ function syncManagedKindSession(item: ManagedImageItem, result: ConvertImageKind
 }
 
 /**
- * 下载管理图片，单张直下，多张统一打包
+ * 固定本次导出范围，30 张及以下逐张下载，超过 30 张打包，并反馈进度与跳过数量
  * @param keys 复合 key 列表
  */
 async function downloadManagedItems(keys: string[]): Promise<void> {
-  await downloadManagedImageItems(keys, false);
-}
-
-/** 将筛选或选中的图片统一导出为一个 ZIP */
-async function exportManagedItems(keys: string[]): Promise<void> {
-  await downloadManagedImageItems(keys, true);
-}
-
-/** 固定本次导出范围，逐张读取图片并反馈进度与跳过数量 */
-async function downloadManagedImageItems(keys: string[], forceZip: boolean): Promise<void> {
   const selectedKeys = new Set(keys);
   const items = managedImageItems.value.filter(item => selectedKeys.has(item.key));
   if (!items.length) return;
@@ -473,7 +463,6 @@ async function downloadManagedImageItems(keys: string[], forceZip: boolean): Pro
         options,
         `cosmos-vision-images-${formatTimestampForFileName(Date.now())}.zip`,
         {
-          forceZip,
           onProgress: progress => {
             managedExportProgress.value = progress;
           },

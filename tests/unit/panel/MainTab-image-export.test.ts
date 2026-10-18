@@ -60,23 +60,51 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount());
 
 describe('图片批量导出流程', () => {
-  it('收藏和临时图片合并为一个 ZIP，忽略重复及失效选择', async () => {
+  it('少量收藏和临时图片逐张下载，忽略重复及失效选择后判断打包数量', async () => {
     const panel = await mountTab();
-    panel.vm.$emit('export-items', ['favorite:1', 'temporary:2', 'favorite:1', 'missing']);
+    panel.vm.$emit('export-items', [...Array(31).fill('favorite:1'), 'temporary:2', 'missing']);
     await flushPromises();
 
     expect(mocks.loadImageBlob).toHaveBeenCalledTimes(2);
-    expect(mocks.triggerBrowserDownload).toHaveBeenCalledTimes(1);
-    const [blob, fileName] = mocks.triggerBrowserDownload.mock.calls[0];
-    expect(fileName).toMatch(/^cosmos-vision-images-.*\.zip$/);
-    const zip = await JSZipMock.loadAsync(blob);
-    expect(await Promise.all(Object.values(zip.files).map(entry => entry.async('string')))).toEqual([
-      'temporary:2',
-      'favorite:1',
-    ]);
+    const downloads = mocks.triggerBrowserDownload.mock.calls;
+    expect(downloads).toHaveLength(2);
+    expect(downloads.every(([, name]) => name.endsWith('.png'))).toBe(true);
+    expect(await Promise.all(downloads.map(([blob]) => blob.text()))).toEqual(['temporary:2', 'favorite:1']);
     expect(toastr.success).toHaveBeenCalledWith('已导出 2 张图片');
     expect(panel.props('busy')).toBe(false);
     expect(panel.props('exportProgress')).toBeNull();
+  });
+
+  it.each([30, 31])('选择 %i 张收藏与临时图片时，按总数决定逐张下载或统一打包', async count => {
+    const meta = { characterKey: 'Alice', chatId: 'chat-1', slotId: 'slot-1', promptSnapshot: {} };
+    mocks.listFavorites.mockResolvedValue(
+      Array.from({ length: count - 1 }, (_, index) => ({
+        ...meta,
+        id: index + 1,
+        createdAt: index + 1,
+        filePath: `/favorite-${index}.png`,
+      })),
+    );
+    const panel = await mountTab();
+    panel.vm.$emit('export-items', [
+      ...Array.from({ length: count - 1 }, (_, index) => `favorite:${index + 1}`),
+      'temporary:2',
+    ]);
+    await flushPromises();
+    expect(mocks.loadImageBlob).toHaveBeenCalledTimes(count);
+    const downloads = mocks.triggerBrowserDownload.mock.calls;
+    if (count === 30) {
+      expect(downloads).toHaveLength(30);
+      expect(downloads.every(([, name]) => name.endsWith('.png'))).toBe(true);
+    } else {
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0][1]).toMatch(/^cosmos-vision-images-.*\.zip$/);
+      const zip = await JSZipMock.loadAsync(downloads[0][0]);
+      const contents = await Promise.all(Object.values(zip.files).map(entry => entry.async('string')));
+      expect(contents).toHaveLength(31);
+      expect(contents).toContain('favorite:1');
+      expect(contents).toContain('temporary:2');
+    }
   });
 
   it('选择格式期间阻止重复导出，取消后解除忙碌状态且不读取图片', async () => {

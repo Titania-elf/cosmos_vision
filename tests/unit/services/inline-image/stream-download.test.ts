@@ -42,62 +42,69 @@ describe('downloadInlineImageStreamItems', () => {
     expect(mocks.triggerBrowserDownload).not.toHaveBeenCalled();
   });
 
-  it('单张成功直接下载并返回成功计数', async () => {
+  it.each([1, 2, 30])('%i 张图片逐张下载，保留转换格式并使用不同文件名', async count => {
     const { downloadInlineImageStreamItems } = await importDownloadModule();
-    const blob = new Blob(['single']);
+    const items = Array.from({ length: count }, (_, index) => streamItem(async () => new Blob([String(index)])));
+    mocks.transformInlineImageForDownload.mockImplementation(async (blob: Blob) => ({ blob, extension: 'jpg' }));
 
-    const result = await downloadInlineImageStreamItems([streamItem(() => Promise.resolve(blob))], downloadOptions);
+    const result = await downloadInlineImageStreamItems(items, downloadOptions);
 
-    expect(result).toEqual({ succeededCount: 1, failedCount: 0 });
-    expect(mocks.downloadInlineImageBlob).toHaveBeenCalledWith(blob, expect.any(String), downloadOptions);
+    expect(result).toEqual({ succeededCount: count, failedCount: 0 });
+    const downloads = mocks.triggerBrowserDownload.mock.calls;
+    expect(downloads).toHaveLength(count);
+    expect(new Set(downloads.map(([, name]) => name)).size).toBe(count);
+    expect(downloads.every(([, name]) => name.endsWith('.jpg'))).toBe(true);
+    expect(await Promise.all(downloads.map(([blob]) => blob.text()))).toEqual(items.map((_, index) => String(index)));
   });
 
   it('ZIP 部分失败跳过并计数，仍导出成功项', async () => {
     const { downloadInlineImageStreamItems } = await importDownloadModule();
-    const items = [
-      streamItem(() => Promise.resolve(new Blob(['a']))),
-      streamItem(() => Promise.reject(new Error('missing'))),
-      streamItem(() => Promise.resolve(new Blob(['c']))),
-    ];
+    const items = Array.from({ length: 31 }, (_, index) =>
+      streamItem(async () => {
+        if (index === 1) throw new Error('missing');
+        return new Blob([String(index)]);
+      }),
+    );
 
     const result = await downloadInlineImageStreamItems(items, downloadOptions, 'archive.zip');
 
-    expect(result).toEqual({ succeededCount: 2, failedCount: 1 });
+    expect(result).toEqual({ succeededCount: 30, failedCount: 1 });
     expect(mocks.triggerBrowserDownload).toHaveBeenCalledTimes(1);
+    const zip = await JSZipMock.loadAsync(mocks.triggerBrowserDownload.mock.calls[0][0]);
+    expect(Object.values(zip.files)).toHaveLength(30);
   });
 
-  it('全部失败时抛错且不触发下载', async () => {
+  it.each([2, 31])('%i 张图片全部失败时抛错且不触发下载', async count => {
     const { downloadInlineImageStreamItems } = await importDownloadModule();
-    const items = [
-      streamItem(() => Promise.reject(new Error('missing-a'))),
-      streamItem(() => Promise.reject(new Error('missing-b'))),
-    ];
+    const items = Array.from({ length: count }, () => streamItem(() => Promise.reject(new Error('missing'))));
 
     await expect(downloadInlineImageStreamItems(items, downloadOptions)).rejects.toThrow('没有可成功导出的图片');
     expect(mocks.triggerBrowserDownload).not.toHaveBeenCalled();
   });
 
-  it('批量导出单张仍生成 ZIP，文件内容和扩展名跟随转换结果', async () => {
+  it('31 张图片生成一个 ZIP，内容和扩展名跟随转换结果，并报告打包进度', async () => {
     const { downloadInlineImageStreamItems } = await importDownloadModule();
     const source = new Blob(['source']);
     mocks.transformInlineImageForDownload.mockResolvedValue({ blob: new Blob(['converted']), extension: 'jpg' });
+    const onProgress = vi.fn();
     const result = await downloadInlineImageStreamItems(
-      [streamItem(() => Promise.resolve(source))],
+      Array.from({ length: 31 }, () => streamItem(() => Promise.resolve(source))),
       downloadOptions,
       'export.zip',
-      { forceZip: true },
+      { onProgress },
     );
 
-    expect(result).toEqual({ succeededCount: 1, failedCount: 0 });
-    expect(mocks.downloadInlineImageBlob).not.toHaveBeenCalled();
+    expect(result).toEqual({ succeededCount: 31, failedCount: 0 });
+    expect(mocks.triggerBrowserDownload).toHaveBeenCalledTimes(1);
     expect(mocks.transformInlineImageForDownload).toHaveBeenCalledWith(source, downloadOptions);
     const [blob, name] = mocks.triggerBrowserDownload.mock.calls[0];
     expect(name).toBe('export.zip');
     const zip = await JSZipMock.loadAsync(blob);
     const entries = Object.values(zip.files);
-    expect(entries).toHaveLength(1);
-    expect(entries[0].name).toMatch(/\.jpg$/);
-    expect(await entries[0].async('string')).toBe('converted');
+    expect(entries).toHaveLength(31);
+    expect(entries.every(entry => entry.name.endsWith('.jpg'))).toBe(true);
+    expect(await Promise.all(entries.map(entry => entry.async('string')))).toEqual(Array(31).fill('converted'));
+    expect(onProgress).toHaveBeenLastCalledWith({ phase: 'archive', completed: 31, total: 31 });
   });
 
   it('逐张加载并报告包括失败项在内的进度，同时间戳图片不会互相覆盖', async () => {
@@ -115,7 +122,6 @@ describe('downloadInlineImageStreamItems', () => {
     ];
 
     const pending = downloadInlineImageStreamItems(items, downloadOptions, 'export.zip', {
-      forceZip: true,
       onProgress,
     });
     expect(loadSecond).not.toHaveBeenCalled();
@@ -126,12 +132,23 @@ describe('downloadInlineImageStreamItems', () => {
       { phase: 'images', completed: 1, total: 3 },
       { phase: 'images', completed: 2, total: 3 },
       { phase: 'images', completed: 3, total: 3 },
-      { phase: 'archive', completed: 3, total: 3 },
     ]);
-    const zip = await JSZipMock.loadAsync(mocks.triggerBrowserDownload.mock.calls[0][0]);
-    const entries = Object.values(zip.files);
-    expect(entries).toHaveLength(2);
-    expect(await Promise.all(entries.map(entry => entry.async('string')))).toEqual(['first', 'third']);
+    const downloads = mocks.triggerBrowserDownload.mock.calls;
+    expect(downloads).toHaveLength(2);
+    expect(downloads[0][1]).not.toBe(downloads[1][1]);
+    expect(await Promise.all(downloads.map(([blob]) => blob.text()))).toEqual(['first', 'third']);
+  });
+
+  it('逐张下载时转换失败跳过，后续图片继续下载', async () => {
+    const { downloadInlineImageStreamItems } = await importDownloadModule();
+    mocks.transformInlineImageForDownload.mockRejectedValueOnce(new Error('conversion failed'));
+    const result = await downloadInlineImageStreamItems(
+      [streamItem(async () => new Blob(['bad'])), streamItem(async () => new Blob(['good']))],
+      downloadOptions,
+    );
+    expect(result).toEqual({ succeededCount: 1, failedCount: 1 });
+    expect(mocks.triggerBrowserDownload).toHaveBeenCalledTimes(1);
+    expect(await mocks.triggerBrowserDownload.mock.calls[0][0].text()).toBe('good');
   });
 
   it('ZIP 打包失败向调用方抛错，不触发下载', async () => {
@@ -140,10 +157,9 @@ describe('downloadInlineImageStreamItems', () => {
     try {
       await expect(
         downloadInlineImageStreamItems(
-          [streamItem(() => Promise.resolve(new Blob(['a'])))],
+          Array.from({ length: 31 }, () => streamItem(() => Promise.resolve(new Blob(['a'])))),
           downloadOptions,
           'export.zip',
-          { forceZip: true },
         ),
       ).rejects.toThrow('zip failed');
       expect(mocks.triggerBrowserDownload).not.toHaveBeenCalled();
