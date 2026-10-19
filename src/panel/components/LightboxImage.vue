@@ -15,7 +15,13 @@
 
 <script setup lang="ts">
 import { inject } from 'vue';
-import { openInlineImageLightbox, type InlinePromptSnapshot } from '@/composables/inlineImageLightbox';
+import {
+  openInlineImageGalleryLightbox,
+  openInlineImageLightbox,
+  type InlineLightboxBatch,
+  type InlineLightboxGallery,
+  type InlinePromptSnapshot,
+} from '@/composables/inlineImageLightbox';
 import {
   IMAGE_DOWNLOAD_OPTIONS_REQUEST_KEY,
   type InlineImageDownloadOptions,
@@ -31,6 +37,12 @@ const props = withDefaults(
     downloadAction?: () => void | Promise<void>;
     downloadBlob?: Blob | null;
     disabled?: boolean;
+    /** 图片池：传入后大图可左右翻页，而非只显示当前一张 */
+    gallery?: InlineLightboxGallery | null;
+    /** 当前图片在图片池中的 key */
+    galleryKey?: string;
+    /** 批量勾选上下文：大图内可勾选并执行批量下载或删除 */
+    batch?: InlineLightboxBatch | null;
   }>(),
   {
     alt: '',
@@ -38,6 +50,9 @@ const props = withDefaults(
     downloadAction: undefined,
     downloadBlob: null,
     disabled: false,
+    gallery: null,
+    galleryKey: '',
+    batch: null,
   },
 );
 
@@ -52,6 +67,12 @@ const requestDownloadOptions = inject<() => Promise<InlineImageDownloadOptions |
 function openPreview(event: MouseEvent | KeyboardEvent): void {
   if (props.disabled) return;
   event.stopPropagation();
+  if (props.gallery && props.galleryKey) {
+    openInlineImageGalleryLightbox(props.gallery, props.galleryKey, {
+      batch: props.batch ?? undefined,
+    });
+    return;
+  }
   const onDownload = resolveDownloadAction();
   openInlineImageLightbox(props.src, props.snapshot, onDownload ? { onDownload } : undefined);
 }

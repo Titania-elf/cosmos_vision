@@ -4,7 +4,10 @@ import {
   closeInlineImageLightbox,
   handleInlineImageClick,
   inlineLightboxState,
+  openInlineImageGalleryLightbox,
   openInlineImageLightbox,
+  type InlineLightboxBatch,
+  type InlineLightboxGallery,
   type InlinePromptSnapshot,
 } from '@/composables/inlineImageLightbox';
 
@@ -83,7 +86,60 @@ describe('inlineImageLightbox 状态', () => {
     closeInlineImageLightbox();
     expect(inlineLightboxState.open).toBe(false);
   });
+
+  it('openInlineImageGalleryLightbox 写入图片池、初始 key 与批量上下文，并请求加载初始图片', () => {
+    const gallery = createGallery(['a', 'b']);
+    const batch = createBatch();
+    openInlineImageGalleryLightbox(gallery, 'b', { batch });
+
+    expect(inlineLightboxState.open).toBe(true);
+    expect(inlineLightboxState.key).toBe('b');
+    expect(inlineLightboxState.src).toBe('blob:b');
+    expect(inlineLightboxState.snapshot).toEqual(gallery.snapshotOf('b'));
+    expect(inlineLightboxState.batch).toEqual(batch);
+    expect(gallery.ensure).toHaveBeenCalledWith('b');
+  });
+
+  it('不传批量上下文时大图只支持预览，且不残留上一张的单张下载回调', () => {
+    openInlineImageLightbox('https://example.com/a.png', snapshot, { onDownload: vi.fn() });
+    openInlineImageGalleryLightbox(createGallery(['a']), 'a');
+
+    expect(inlineLightboxState.batch).toBeUndefined();
+    expect(inlineLightboxState.onDownload).toBeUndefined();
+  });
+
+  it('单图模式重新打开时清空图片池状态，避免沿用旧图片列表', () => {
+    openInlineImageGalleryLightbox(createGallery(['a']), 'a', { batch: createBatch() });
+    openInlineImageLightbox('https://example.com/a.png', snapshot);
+
+    expect(inlineLightboxState.key).toBe('');
+    expect(inlineLightboxState.gallery).toBeUndefined();
+    expect(inlineLightboxState.batch).toBeUndefined();
+  });
 });
+
+/** 构造测试用图片池 */
+function createGallery(keys: string[]): InlineLightboxGallery {
+  return {
+    keys: () => keys,
+    srcOf: key => `blob:${key}`,
+    snapshotOf: key => ({ ...snapshot, positivePrompt: `prompt-${key}` }),
+    downloadOf: () => undefined,
+    ensure: vi.fn(),
+  };
+}
+
+/** 构造测试用批量上下文 */
+function createBatch(): InlineLightboxBatch {
+  return {
+    action: 'download',
+    count: 2,
+    disabled: false,
+    isSelected: () => false,
+    toggle: vi.fn(),
+    execute: vi.fn(),
+  };
+}
 
 describe('handleInlineImageClick', () => {
   beforeEach(() => {

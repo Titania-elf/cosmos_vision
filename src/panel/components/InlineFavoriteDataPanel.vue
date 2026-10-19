@@ -171,7 +171,9 @@
                       :src="getPreviewUrl(item.key)"
                       :snapshot="item.promptSnapshot"
                       :download-action="() => $emit('download-items', [item.key])"
-                      :disabled="isSelecting"
+                      :gallery="lightboxGallery"
+                      :gallery-key="item.key"
+                      :batch="lightboxBatch"
                       alt="图片预览"
                       class="block size-full object-cover"
                     />
@@ -259,7 +261,9 @@
                       :src="getPreviewUrl(item.key)"
                       :snapshot="item.promptSnapshot"
                       :download-action="() => $emit('download-items', [item.key])"
-                      :disabled="isSelecting"
+                      :gallery="lightboxGallery"
+                      :gallery-key="item.key"
+                      :batch="lightboxBatch"
                       alt="图片预览"
                       class="block size-full object-cover"
                     />
@@ -401,7 +405,8 @@ import Select from 'primevue/select';
 import Skeleton from 'primevue/skeleton';
 import { useLocalStorage } from '@vueuse/core';
 import { computed, ref, watch } from 'vue';
-import { useManagedImagePreviews } from '@/composables/useManagedImagePreviews';
+import type { InlineLightboxBatch, InlineLightboxGallery } from '@/composables/inlineImageLightbox';
+import { useLightboxImageCache, useManagedImagePreviews } from '@/composables/useManagedImagePreviews';
 import { useVirtualCardGrid } from '@/composables/useVirtualCardGrid';
 import CvDataCard from '@/panel/components/CvDataCard.vue';
 import CvLayoutToggle from '@/panel/components/CvLayoutToggle.vue';
@@ -477,6 +482,45 @@ const { containerProps, wrapperProps, visibleRows, rowRef, scrollToRow } = useVi
 // 可见窗口 key → 按需加载缩略图 object URL（滚出窗口即回收）
 const visibleCardKeys = computed(() => visibleRows.value.flatMap(row => row.items.map(item => item.key)));
 const { previewUrls, previewStatus } = useManagedImagePreviews(() => visibleItems.value, visibleCardKeys);
+
+// 大图图片池：独立于虚拟列表加载，避免滚出窗口回收 URL 后大图变空白
+const { urlOf: galleryUrlOf, ensure: ensureGalleryImage } = useLightboxImageCache();
+
+/** 大图当前使用的图片池（按当前筛选的展示顺序翻页） */
+const lightboxGallery = computed<InlineLightboxGallery>(() => ({
+  keys: () => visibleItems.value.map(item => item.key),
+  // 大图缓存未就绪时先用缩略图地址顶替，避免打开大图时闪一下加载态
+  srcOf: key => galleryUrlOf(key) || previewUrls.value[key] || '',
+  snapshotOf: key => visibleItems.value.find(item => item.key === key)?.promptSnapshot,
+  downloadOf: key => () => emit('download-items', [key]),
+  ensure: key => ensureGalleryImage(key, findVisibleItem(key)),
+}));
+
+/** 大图内批量勾选与执行：直接读写面板的选择状态，两处勾选保持同步 */
+const lightboxBatch = computed<InlineLightboxBatch | null>(() => {
+  if (!batchAction.value) return null;
+  const action = batchAction.value;
+  return {
+    action,
+    get count() {
+      return selectedCount.value;
+    },
+    get disabled() {
+      return props.loading || props.busy;
+    },
+    isSelected: isItemSelected,
+    toggle: toggleItem,
+    execute: () => {
+      if (action !== batchAction.value) return;
+      executeBatchAction();
+    },
+  };
+});
+
+/** 按 key 查找当前筛选范围内的管理项 */
+function findVisibleItem(key: string): ManagedImageItem | undefined {
+  return visibleItems.value.find(item => item.key === key);
+}
 
 // 筛选变化时回到列表顶部；删除/刷新等数据变化保持原滚动位置
 watch([selectedType, selectedCharacterKey, selectedChatId], () => {

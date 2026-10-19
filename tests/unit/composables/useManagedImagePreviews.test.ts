@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { defineComponent, ref } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useManagedImagePreviews } from '@/composables/useManagedImagePreviews';
+import { useLightboxImageCache, useManagedImagePreviews } from '@/composables/useManagedImagePreviews';
 import type { ManagedImageItem } from '@/services/inline-image/managed-images';
 
 const mocks = vi.hoisted(() => ({ loadImageBlob: vi.fn() }));
@@ -131,3 +131,93 @@ describe('useManagedImagePreviews', () => {
     expect(revokeObjectURL).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('useLightboxImageCache', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.loadImageBlob.mockReset();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:lightbox'), revokeObjectURL: vi.fn() });
+  });
+
+  it('同一 key 只加载一次，加载完成后可按 key 取地址', async () => {
+    mocks.loadImageBlob.mockResolvedValue(new Blob(['img']));
+    const { api } = mountLightboxCache();
+    const item = buildItem('a');
+
+    api.ensure('favorite:a', item);
+    api.ensure('favorite:a', item);
+    await flushMicrotasks();
+
+    expect(mocks.loadImageBlob).toHaveBeenCalledTimes(1);
+    expect(api.urlOf('favorite:a')).toBe('blob:lightbox');
+    expect(api.urlOf('favorite:b')).toBe('');
+  });
+
+  it('滚出列表不影响地址缓存，面板卸载时才统一回收', async () => {
+    mocks.loadImageBlob.mockResolvedValue(new Blob(['img']));
+    const { api, wrapper } = mountLightboxCache();
+    api.ensure('favorite:a', buildItem('a'));
+    await flushMicrotasks();
+    const revoke = vi.mocked(URL.revokeObjectURL);
+
+    await wrapper.vm.$nextTick();
+    expect(revoke).not.toHaveBeenCalled();
+    expect(api.urlOf('favorite:a')).toBe('blob:lightbox');
+
+    wrapper.unmount();
+    expect(revoke).toHaveBeenCalledWith('blob:lightbox');
+  });
+
+  it('加载失败不缓存，翻回该图时可重试', async () => {
+    mocks.loadImageBlob.mockRejectedValueOnce(new Error('missing')).mockResolvedValueOnce(new Blob(['img']));
+    const { api } = mountLightboxCache();
+    const item = buildItem('a');
+
+    api.ensure('favorite:a', item);
+    await flushMicrotasks();
+    expect(api.urlOf('favorite:a')).toBe('');
+    expect(mocks.loadImageBlob).toHaveBeenCalledTimes(1);
+
+    api.ensure('favorite:a', item);
+    await flushMicrotasks();
+    expect(mocks.loadImageBlob).toHaveBeenCalledTimes(2);
+    expect(api.urlOf('favorite:a')).toBe('blob:lightbox');
+  });
+
+  it('超出缓存上限时回收最久未访问的原图，避免长期翻页堆积内存', async () => {
+    mocks.loadImageBlob.mockResolvedValue(new Blob(['img']));
+    const createObjectURL = vi.fn((blob: Blob) => `blob:${blob.size}-${createObjectURL.mock.calls.length}`);
+    Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() });
+    const { api } = mountLightboxCache();
+
+    for (let index = 0; index < 33; index += 1) {
+      api.ensure(`favorite:${index}`, buildItem(String(index)));
+    }
+    await flushMicrotasks();
+
+    expect(api.urlOf('favorite:0')).toBe('');
+    expect(api.urlOf('favorite:1')).toBe('blob:3-2');
+    expect(vi.mocked(URL.revokeObjectURL)).toHaveBeenCalledWith('blob:3-1');
+  });
+
+  it('未提供管理项时不发起加载', () => {
+    const { api } = mountLightboxCache();
+    api.ensure('favorite:missing', undefined);
+    expect(mocks.loadImageBlob).not.toHaveBeenCalled();
+  });
+});
+
+/** 挂载宿主组件并返回大图缓存句柄 */
+function mountLightboxCache() {
+  let api!: ReturnType<typeof useLightboxImageCache>;
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        api = useLightboxImageCache();
+        return () => null;
+      },
+    }),
+  );
+  return { wrapper, api };
+}

@@ -11,10 +11,68 @@
         <div class="cv-lightbox-img-box">
           <Gallery>
             <GalleryContent class="cv-lightbox-gallery-content">
-              <GalleryItem :zoomed-scale="3">
-                <img :src="inlineLightboxState.src" alt="放大图片" draggable="false" />
+              <GalleryItem :key="inlineLightboxState.key" :zoomed-scale="3">
+                <img v-if="currentSrc" :src="currentSrc" alt="放大图片" draggable="false" />
+                <div v-else class="cv-lightbox-img-loading" role="status" aria-live="polite">图片加载中…</div>
               </GalleryItem>
             </GalleryContent>
+
+            <!-- 左侧翻页与批量操作区：图片池模式下才出现 -->
+            <div v-if="galleryTotal > 0" class="cv-lightbox-nav" @click.stop>
+              <button
+                type="button"
+                class="cv-lightbox-nav-btn"
+                title="上一张（←）"
+                aria-label="上一张"
+                :disabled="!canNavigate"
+                @click="navigate(-1)"
+              >
+                <i class="fa-solid fa-chevron-left" />
+              </button>
+              <span class="cv-lightbox-nav-counter">{{ Math.max(currentIndex, 0) + 1 }} / {{ galleryTotal }}</span>
+              <button
+                type="button"
+                class="cv-lightbox-nav-btn"
+                title="下一张（→）"
+                aria-label="下一张"
+                :disabled="!canNavigate"
+                @click="navigate(1)"
+              >
+                <i class="fa-solid fa-chevron-right" />
+              </button>
+              <template v-if="inlineLightboxState.batch">
+                <label
+                  class="cv-lightbox-select"
+                  :class="{ 'is-disabled': inlineLightboxState.batch.disabled }"
+                  title="勾选/取消勾选当前图片"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="isCurrentSelected"
+                    :disabled="inlineLightboxState.batch.disabled"
+                    @change="toggleCurrentSelection"
+                  />
+                  <span>选择</span>
+                </label>
+                <button
+                  type="button"
+                  class="cv-lightbox-batch-exec"
+                  :class="{ 'is-danger': inlineLightboxState.batch.action === 'delete' }"
+                  :disabled="inlineLightboxState.batch.disabled || !inlineLightboxState.batch.count"
+                  @click="executeBatch"
+                >
+                  <i
+                    class="fa-solid"
+                    :class="inlineLightboxState.batch.action === 'delete' ? 'fa-trash' : 'fa-download'"
+                  />
+                  <span>
+                    {{ inlineLightboxState.batch.action === 'delete' ? '删除选中' : '下载选中' }}（{{
+                      inlineLightboxState.batch.count
+                    }}）
+                  </span>
+                </button>
+              </template>
+            </div>
 
             <!-- 工具栏须在 Gallery 子树内，Zoom 按钮才能 inject $pcGallery -->
             <div class="cv-lightbox-toolbar" @click.stop>
@@ -35,7 +93,7 @@
                 <i class="fa-solid fa-circle-info" />
               </button>
               <button
-                v-if="inlineLightboxState.onDownload"
+                v-if="hasCurrentDownload"
                 type="button"
                 class="cv-lightbox-download"
                 title="下载图片"
@@ -58,11 +116,7 @@
         </div>
 
         <!-- 图片生图元数据面板 -->
-        <LightboxImageInfoPanel
-          v-if="infoPanelVisible"
-          :snapshot="inlineLightboxState.snapshot"
-          @click.stop
-        />
+        <LightboxImageInfoPanel v-if="infoPanelVisible" :snapshot="currentSnapshot" @click.stop />
 
         <!-- 底部提示词详情面板 -->
         <div class="cv-lightbox-info" :class="{ 'cv-info-collapsed': infoCollapsed }" @click.stop>
@@ -212,24 +266,78 @@ const collapsedCharIndexes = ref(new Set<number>());
 /** 复制成功态还原定时器 */
 let copiedTimer = 0;
 
+/** 图片池 key 快照（调用方 keys() 返回数组，模板引用需缓存以免每帧重建） */
+const galleryKeys = computed(() => (inlineLightboxState.open ? (inlineLightboxState.gallery?.keys() ?? []) : []));
+
+/** 当前图片序号（-1 = 不在图片池中） */
+const currentIndex = computed(() => galleryKeys.value.indexOf(inlineLightboxState.key));
+
+/** 图片池总数；0 表示单图模式 */
+const galleryTotal = computed(() => galleryKeys.value.length);
+
+/** 左右翻页按钮可用性（加载中 / 批量处理中禁止切图，避免勾选与操作对象错位） */
+const canNavigate = computed(() => galleryTotal.value > 1 && !inlineLightboxState.batch?.disabled);
+
+/** 当前图片地址（图片池模式下随加载状态变化） */
+const currentSrc = computed(() =>
+  inlineLightboxState.gallery ? inlineLightboxState.gallery.srcOf(inlineLightboxState.key) : inlineLightboxState.src,
+);
+
+/** 当前图片的提示词快照 */
+const currentSnapshot = computed(() =>
+  inlineLightboxState.gallery
+    ? inlineLightboxState.gallery.snapshotOf(inlineLightboxState.key)
+    : inlineLightboxState.snapshot,
+);
+
+/** 当前图片是否已勾选 */
+const isCurrentSelected = computed(() => {
+  const batch = inlineLightboxState.batch;
+  return galleryTotal.value > 0 && Boolean(batch?.isSelected(inlineLightboxState.key));
+});
+
+/** 当前图片是否提供单张下载（图片池按 key 查询，单图模式看全局回调） */
+const hasCurrentDownload = computed(() =>
+  inlineLightboxState.gallery
+    ? Boolean(inlineLightboxState.gallery.downloadOf(inlineLightboxState.key))
+    : Boolean(inlineLightboxState.onDownload),
+);
+
 /** 正面提示词文本（无快照时占位提示） */
 const positivePrompt = computed(() => {
-  const snapshot = inlineLightboxState.snapshot;
+  const snapshot = currentSnapshot.value;
   const prompt = snapshot?.comfyui?.positivePrompt ?? snapshot?.positivePrompt;
   return prompt || '无正面提示词';
 });
 
 /** 负面提示词文本（无快照时占位提示） */
 const negativePrompt = computed(() => {
-  const snapshot = inlineLightboxState.snapshot;
+  const snapshot = currentSnapshot.value;
   const prompt = snapshot?.comfyui?.negativePrompt ?? snapshot?.negativePrompt;
   return prompt || '无负面提示词';
 });
 
 /** 角色提示词列表 */
-const characters = computed(() => inlineLightboxState.snapshot?.novelai?.characterPrompts ?? []);
+const characters = computed(() => currentSnapshot.value?.novelai?.characterPrompts ?? []);
 
-// 打开时重置面板折叠/角色折叠并绑定 ESC；关闭时解绑
+// 切图或当前图片加载完成后同步快照，并预取相邻图片
+watch(
+  [() => inlineLightboxState.key, currentSrc],
+  ([key]) => {
+    const gallery = inlineLightboxState.gallery;
+    if (!gallery || !key) return;
+    inlineLightboxState.snapshot = gallery.snapshotOf(key);
+    inlineLightboxState.onDownload = gallery.downloadOf(key);
+    const index = galleryKeys.value.indexOf(key);
+    gallery.ensure(key);
+    for (const neighbor of [galleryKeys.value[index - 1], galleryKeys.value[index + 1]]) {
+      if (neighbor) gallery.ensure(neighbor);
+    }
+  },
+  { immediate: true },
+);
+
+// 打开时重置面板折叠/角色折叠并绑定键盘；关闭时解绑
 watch(
   () => inlineLightboxState.open,
   open => {
@@ -237,27 +345,70 @@ watch(
       infoCollapsed.value = true;
       infoPanelVisible.value = false;
       collapsedCharIndexes.value = new Set(characters.value.map((_, index) => index));
-      document.addEventListener('keydown', handleEscKey);
+      document.addEventListener('keydown', handleKeydown);
     } else {
       infoPanelVisible.value = false;
-      document.removeEventListener('keydown', handleEscKey);
+      document.removeEventListener('keydown', handleKeydown);
     }
   },
 );
 
-onUnmounted(() => document.removeEventListener('keydown', handleEscKey));
+onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 
 /**
- * ESC 键关闭灯箱或元数据面板
+ * ESC 关闭灯箱或元数据面板；左右方向键在图片池内翻页
  * @param e 键盘事件
  */
-function handleEscKey(e: KeyboardEvent): void {
+function handleKeydown(e: KeyboardEvent): void {
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    if (!canNavigate.value) return;
+    // 避免方向键同时滚动灯箱背后的页面
+    e.preventDefault();
+    navigate(e.key === 'ArrowLeft' ? -1 : 1);
+    return;
+  }
   if (e.key !== 'Escape') return;
   if (infoPanelVisible.value) {
     infoPanelVisible.value = false;
     return;
   }
   closeInlineImageLightbox();
+}
+
+/**
+ * 按偏移切换当前图片（首尾循环）
+ * @param step -1 上一张 / 1 下一张
+ */
+function navigate(step: number): void {
+  const gallery = inlineLightboxState.gallery;
+  const total = galleryTotal.value;
+  if (!gallery || total <= 1) return;
+  const index = currentIndex.value < 0 ? 0 : currentIndex.value;
+  const nextKey = galleryKeys.value[(index + step + total) % total];
+  if (!nextKey) return;
+  inlineLightboxState.key = nextKey;
+  inlineLightboxState.src = gallery.srcOf(nextKey);
+  inlineLightboxState.snapshot = gallery.snapshotOf(nextKey);
+  inlineLightboxState.onDownload = gallery.downloadOf(nextKey);
+}
+
+/**
+ * 切换当前大图的勾选状态
+ */
+function toggleCurrentSelection(): void {
+  const batch = inlineLightboxState.batch;
+  if (!batch || batch.disabled) return;
+  batch.toggle(inlineLightboxState.key);
+}
+
+/**
+ * 执行批量下载或删除，并收起灯箱（操作后图片列表可能变化）
+ */
+function executeBatch(): void {
+  const batch = inlineLightboxState.batch;
+  if (!batch || batch.disabled || !batch.count) return;
+  closeInlineImageLightbox();
+  batch.execute();
 }
 
 /**
@@ -275,7 +426,10 @@ function handleOverlayClick(e: MouseEvent): void {
  * 触发下载回调并捕获异步错误
  */
 function handleDownload(): void {
-  void Promise.resolve(inlineLightboxState.onDownload?.()).catch(error => {
+  const download = inlineLightboxState.gallery
+    ? inlineLightboxState.gallery.downloadOf(inlineLightboxState.key)
+    : inlineLightboxState.onDownload;
+  void Promise.resolve(download?.()).catch(error => {
     console.error('[CosmosVision] 下载图片失败', error);
   });
 }
@@ -337,7 +491,7 @@ function getCharacterItemTitle(item: CharacterPromptItem, index: number): string
  * @returns 坐标文本
  */
 function formatCharacterPosition(item: CharacterPromptItem): string {
-  const useCharacterCoords = inlineLightboxState.snapshot?.novelai?.useCharacterCoords;
+  const useCharacterCoords = currentSnapshot.value?.novelai?.useCharacterCoords;
   if (characters.value.length < 2 || useCharacterCoords === false) return 'Auto';
   return `x: ${item.position.x.toFixed(2)}, y: ${item.position.y.toFixed(2)}`;
 }

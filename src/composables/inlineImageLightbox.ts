@@ -34,20 +34,62 @@ export interface InlineLightboxActions {
   onDownload?: () => void | Promise<void>;
 }
 
+/**
+ * 灯箱图片池：提供可左右翻页的图片序列
+ *
+ * 调用方持有图片列表与地址（例如缩略图 object URL 缓存），灯箱只按 key 查询；
+ * srcOf 返回空串表示该图仍在加载，灯箱展示加载态而不是空白图。
+ */
+export interface InlineLightboxGallery {
+  /** 图片 key 的稳定快照（顺序即翻页顺序） */
+  keys(): readonly string[];
+  /** 按 key 取图片地址，未就绪返回空串 */
+  srcOf(key: string): string;
+  /** 按 key 取提示词快照，无快照返回 undefined */
+  snapshotOf(key: string): InlinePromptSnapshot | undefined;
+  /** 按 key 取单张下载动作，无下载动作返回 undefined */
+  downloadOf(key: string): (() => void | Promise<void>) | undefined;
+  /** 请求加载指定 key 的图片（幂等，可对相邻图片预取） */
+  ensure(key: string): void;
+}
+
+/** 灯箱批量操作上下文：勾选与执行都回落到调用方的选择状态 */
+export type InlineLightboxBatchAction = 'download' | 'delete';
+
+export interface InlineLightboxBatch {
+  action: InlineLightboxBatchAction;
+  /** 已勾选图片数 */
+  count: number;
+  /** 是否因加载中 / 处理中而禁止改动选择与执行 */
+  disabled: boolean;
+  /** 图片是否已勾选 */
+  isSelected: (key: string) => boolean;
+  /** 切换单张图片勾选状态 */
+  toggle: (key: string) => void;
+  /** 执行批量操作（确认弹窗等流程由调用方负责） */
+  execute: () => void;
+}
+
 /** 灯箱响应式状态（模块级单例，组件与命令式调用方共享） */
 export interface InlineLightboxState {
   open: boolean;
   src: string;
   snapshot?: InlinePromptSnapshot;
   onDownload?: () => void | Promise<void>;
+  /** 当前图片在图片池中的 key；未使用图片池时为空 */
+  key: string;
+  /** 图片池；未传入时退化为单图模式 */
+  gallery?: InlineLightboxGallery;
+  /** 批量操作上下文；为空时大图仅支持预览与单张下载 */
+  batch?: InlineLightboxBatch;
 }
 
-export const inlineLightboxState = reactive<InlineLightboxState>({ open: false, src: '' });
+export const inlineLightboxState = reactive<InlineLightboxState>({ open: false, src: '', key: '' });
 
 /**
  * 打开 Lightbox 大图预览弹窗（由 InlineImageLightbox 组件渲染）
- * @param src 图片地址
- * @param snapshot 提示词快照
+ * @param src 初始图片地址
+ * @param snapshot 初始提示词快照
  * @param actions Lightbox 操作集合
  */
 export function openInlineImageLightbox(
@@ -58,7 +100,31 @@ export function openInlineImageLightbox(
   inlineLightboxState.src = src;
   inlineLightboxState.snapshot = snapshot;
   inlineLightboxState.onDownload = actions?.onDownload;
+  inlineLightboxState.key = '';
+  inlineLightboxState.gallery = undefined;
+  inlineLightboxState.batch = undefined;
   inlineLightboxState.open = true;
+}
+
+/**
+ * 打开带图片池的 Lightbox：可左右翻页，并按需附带批量勾选上下文
+ * @param gallery 图片池
+ * @param key 初始图片 key
+ * @param options 批量操作上下文
+ */
+export function openInlineImageGalleryLightbox(
+  gallery: InlineLightboxGallery,
+  key: string,
+  options?: { batch?: InlineLightboxBatch },
+): void {
+  inlineLightboxState.src = gallery.srcOf(key);
+  inlineLightboxState.snapshot = gallery.snapshotOf(key);
+  inlineLightboxState.onDownload = undefined;
+  inlineLightboxState.key = key;
+  inlineLightboxState.gallery = gallery;
+  inlineLightboxState.batch = options?.batch;
+  inlineLightboxState.open = true;
+  gallery.ensure(key);
 }
 
 /**

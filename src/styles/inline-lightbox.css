@@ -99,6 +99,105 @@
   color: #38bdf8;
 }
 
+/* 左侧翻页与批量操作区：独立于右上工具栏，窄屏下自动换行 */
+.cv-lightbox-nav {
+  @apply absolute flex items-center;
+  top: max(1.5rem, env(safe-area-inset-top));
+  left: max(1.5rem, env(safe-area-inset-left));
+  z-index: 100001;
+  gap: 0.5rem;
+  max-width: calc(100vw - 3rem);
+  flex-wrap: wrap;
+}
+
+.cv-lightbox-nav-btn,
+.cv-lightbox-batch-exec {
+  @apply flex items-center justify-center rounded-full;
+  gap: 0.35rem;
+  height: var(--cvp-gallery-action-size, 2.5rem);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cv-lightbox-nav-btn {
+  width: var(--cvp-gallery-action-size, 2.5rem);
+}
+
+.cv-lightbox-nav-btn i {
+  font-size: var(--cvp-gallery-action-icon-size, 1.25rem);
+}
+
+.cv-lightbox-nav-btn:hover:not(:disabled),
+.cv-lightbox-batch-exec:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.cv-lightbox-nav-btn:disabled,
+.cv-lightbox-batch-exec:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.cv-lightbox-nav-counter {
+  min-width: 3.5rem;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.cv-lightbox-batch-exec {
+  padding: 0 1rem;
+  font-size: 0.8rem;
+}
+
+.cv-lightbox-batch-exec.is-danger {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(185, 28, 28, 0.55);
+}
+
+.cv-lightbox-batch-exec.is-danger:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.7);
+}
+
+.cv-lightbox-select {
+  @apply flex items-center;
+  gap: 0.35rem;
+  padding: 0 0.75rem;
+  height: var(--cvp-gallery-action-size, 2.5rem);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.8rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cv-lightbox-select.is-disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.cv-lightbox-select input {
+  accent-color: var(--cvp-blue-500, #3b82f6);
+  cursor: inherit;
+}
+
+/* 图片池模式下的加载占位 */
+.cv-lightbox-img-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.9rem;
+}
+
 .cv-lightbox-close:hover {
   transform: rotate(90deg);
 }
@@ -566,6 +665,29 @@
     top: max(1rem, env(safe-area-inset-top));
     right: max(1rem, env(safe-area-inset-right));
     gap: 0.5rem;
+  }
+
+  /* 翻页区让到工具栏下方，避免与右侧五个按钮挤在同一行 */
+  .cv-lightbox-nav {
+    top: calc(max(1rem, env(safe-area-inset-top)) + var(--cvp-gallery-action-size, 2rem) + 0.5rem);
+    left: max(1rem, env(safe-area-inset-left));
+    gap: 0.35rem;
+    max-width: calc(100vw - 2rem);
+  }
+
+  .cv-lightbox-nav-btn,
+  .cv-lightbox-select {
+    height: var(--cvp-gallery-action-size, 2rem);
+  }
+
+  .cv-lightbox-nav-btn {
+    width: var(--cvp-gallery-action-size, 2rem);
+  }
+
+  .cv-lightbox-batch-exec {
+    height: var(--cvp-gallery-action-size, 2rem);
+    padding: 0 0.75rem;
+    font-size: 0.75rem;
   }
 
   .cv-lightbox-image-info-panel {

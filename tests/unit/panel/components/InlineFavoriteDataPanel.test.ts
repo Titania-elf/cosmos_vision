@@ -4,8 +4,11 @@ import { computed, defineComponent, ref } from 'vue';
 import InlineFavoriteDataPanel from '@/panel/components/InlineFavoriteDataPanel.vue';
 import type { ManagedImageItem } from '@/services/inline-image/managed-images';
 
+const lightboxCache = vi.hoisted(() => ({ urlOf: vi.fn(() => ''), ensure: vi.fn() }));
+
 vi.mock('@/composables/useManagedImagePreviews', () => ({
-  useManagedImagePreviews: () => ({ previewUrls: ref({}), previewStatus: ref({}) }),
+  useManagedImagePreviews: () => ({ previewUrls: ref({}), previewStatus: () => 'ready' }),
+  useLightboxImageCache: () => lightboxCache,
 }));
 
 // 视口仅渲染第一张，验证导出范围不受虚拟滚动影响。
@@ -56,6 +59,13 @@ const PopoverStub = defineComponent({
   template: '<div v-if="visible"><slot /></div>',
 });
 
+const CvDataCardStub = defineComponent({
+  name: 'CvDataCard',
+  props: ['selected', 'selecting', 'disabled'],
+  emits: ['toggle'],
+  template: '<div><slot /></div>',
+});
+
 let wrapper: VueWrapper;
 function mountPanel() {
   wrapper = shallowMount(InlineFavoriteDataPanel, {
@@ -64,6 +74,7 @@ function mountPanel() {
       stubs: {
         StaticPanel: { template: '<section><slot name="actions" /><slot /></section>' },
         CvMiniButton: { props: ['label', 'disabled'], template: '<button :disabled="disabled">{{ label }}</button>' },
+        CvDataCard: CvDataCardStub,
         Popover: PopoverStub,
       },
     },
@@ -189,5 +200,47 @@ describe('图片管理批量操作', () => {
     wrapper.findComponent({ name: 'CvDataCard' }).vm.$emit('toggle');
     await wrapper.vm.$nextTick();
     expect(wrapper.text()).toContain('已选 4 张');
+  });
+});
+
+describe('图片管理大图图片池', () => {
+  it('缩略图始终可进大图，并携带当前筛选顺序的图片池', async () => {
+    mountPanel();
+    const image = wrapper.findComponent({ name: 'LightboxImage' });
+    expect(image.props('disabled')).toBe(false);
+
+    const gallery = image.props('gallery');
+    expect(gallery).toBeTruthy();
+    expect(gallery.keys()).toEqual(items.map(item => item.key));
+    expect(gallery.snapshotOf('favorite:1')).toEqual(items[0].promptSnapshot);
+    expect(gallery.downloadOf('favorite:1')).toBeTypeOf('function');
+
+    gallery.ensure('favorite:1');
+    await wrapper.vm.$nextTick();
+  });
+
+  it('未进入批量模式时大图不带勾选上下文，进入后与列表共享选择', async () => {
+    mountPanel();
+    expect(wrapper.findComponent({ name: 'LightboxImage' }).props('batch')).toBeNull();
+
+    await startBatch('批量删除');
+    const batch = wrapper.findComponent({ name: 'LightboxImage' }).props('batch');
+    expect(batch.action).toBe('delete');
+    expect(batch.count).toBe(0);
+
+    batch.toggle('favorite:1');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.text()).toContain('已选 1 张');
+    expect(batch.isSelected('favorite:1')).toBe(true);
+
+    batch.execute();
+    expect(wrapper.emitted('delete-items')).toEqual([[['favorite:1']]]);
+  });
+
+  it('筛选变化后图片池只包含当前可见顺序的图片', async () => {
+    mountPanel();
+    await wrapper.findAllComponents({ name: 'Select' })[0].setValue('temporary');
+    const gallery = wrapper.findComponent({ name: 'LightboxImage' }).props('gallery');
+    expect(gallery.keys()).toEqual(['temporary:2']);
   });
 });

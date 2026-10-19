@@ -1,11 +1,14 @@
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { nextTick } from 'vue';
+import { nextTick, ref } from 'vue';
 import {
   closeInlineImageLightbox,
   inlineLightboxState,
+  openInlineImageGalleryLightbox,
   openInlineImageLightbox,
+  type InlineLightboxBatch,
+  type InlineLightboxGallery,
   type InlinePromptSnapshot,
 } from '@/composables/inlineImageLightbox';
 import InlineImageLightbox from '@/panel/components/InlineImageLightbox.vue';
@@ -150,8 +153,7 @@ describe('InlineImageLightbox 组件', () => {
     expect(wrapper.findComponent({ name: 'LightboxImageInfoPanel' }).exists()).toBe(false);
   });
 
-  it('信息面板展开时按 ESC 优先关闭面板，面板已关闭时按 ESC 关闭灯箱', async () => {
-    const wrapper = mountLightbox();
+  it('信息面板展开时按 ESC 优先关闭面板，面板已关闭时按 ESC 关闭灯箱', async () => {    const wrapper = mountLightbox();
     openInlineImageLightbox('https://example.com/a.png', snapshot);
     await wrapper.vm.$nextTick();
 
@@ -169,5 +171,151 @@ describe('InlineImageLightbox 组件', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await wrapper.vm.$nextTick();
     expect(inlineLightboxState.open).toBe(false);
+  });
+});
+
+/** 构造测试用图片池 */
+function createGallery(keys: string[]): InlineLightboxGallery {
+  return {
+    keys: () => keys,
+    srcOf: key => `blob:${key}`,
+    snapshotOf: key => ({ ...snapshot, positivePrompt: `prompt-${key}` }),
+    downloadOf: () => undefined,
+    ensure: vi.fn(),
+  };
+}
+
+/** 构造测试用批量上下文 */
+function createBatch(overrides: Partial<InlineLightboxBatch> = {}): InlineLightboxBatch {
+  return {
+    action: 'download',
+    count: 1,
+    disabled: false,
+    isSelected: () => false,
+    toggle: vi.fn(),
+    execute: vi.fn(),
+    ...overrides,
+  };
+}
+
+describe('InlineImageLightbox 大图翻页与批量勾选', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    closeInlineImageLightbox();
+  });
+
+  afterEach(async () => {
+    currentWrapper?.unmount();
+    currentWrapper = null;
+    closeInlineImageLightbox();
+    await nextTick();
+    vi.restoreAllMocks();
+  });
+
+  it('按图片池打开时显示序号，点击左右按钮循环翻页并同步提示词', async () => {
+    const gallery = createGallery(['a', 'b', 'c']);
+    const wrapper = mountLightbox();
+    openInlineImageGalleryLightbox(gallery, 'a');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('img').attributes('src')).toBe('blob:a');
+    expect(wrapper.find('.cv-lightbox-nav-counter').text()).toBe('1 / 3');
+    await wrapper.find('.cv-lightbox-toggle-btn').trigger('click');
+    expect(wrapper.findAll('.cv-lightbox-prompt-content')[0].text()).toBe('prompt-a');
+
+    const navButtons = wrapper.findAll('.cv-lightbox-nav-btn');
+    await navButtons[1].trigger('click');
+    expect(inlineLightboxState.key).toBe('b');
+    expect(wrapper.find('img').attributes('src')).toBe('blob:b');
+    expect(wrapper.findAll('.cv-lightbox-prompt-content')[0].text()).toBe('prompt-b');
+
+    await wrapper.findAll('.cv-lightbox-nav-btn')[0].trigger('click');
+    expect(inlineLightboxState.key).toBe('a');
+    // 首尾循环：从第一张继续往前翻到末张
+    await wrapper.findAll('.cv-lightbox-nav-btn')[0].trigger('click');
+    expect(inlineLightboxState.key).toBe('c');
+    expect(wrapper.find('.cv-lightbox-nav-counter').text()).toBe('3 / 3');
+    expect(gallery.ensure).toHaveBeenCalledWith('b');
+  });
+
+  it('方向键翻页，批量处理中禁用翻页按钮且忽略方向键', async () => {
+    const wrapper = mountLightbox();
+    openInlineImageGalleryLightbox(createGallery(['a', 'b']), 'a', {
+      batch: createBatch({ disabled: true }),
+    });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.findAll('.cv-lightbox-nav-btn').every(button => button.attributes('disabled') !== undefined)).toBe(
+      true,
+    );
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    await wrapper.vm.$nextTick();
+    expect(inlineLightboxState.key).toBe('a');
+
+    closeInlineImageLightbox();
+    openInlineImageGalleryLightbox(createGallery(['a', 'b']), 'a');
+    await wrapper.vm.$nextTick();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    await wrapper.vm.$nextTick();
+    expect(inlineLightboxState.key).toBe('b');
+  });
+
+  it('勾选当前图片时回调调用方，并展示已选数量与对应操作', async () => {
+    const count = ref(0);
+    const batch: InlineLightboxBatch = {
+      ...createBatch(),
+      get count() {
+        return count.value;
+      },
+    };
+    const wrapper = mountLightbox();
+    openInlineImageGalleryLightbox(createGallery(['a', 'b']), 'a', { batch });
+    await wrapper.vm.$nextTick();
+
+    const execButton = wrapper.find('.cv-lightbox-batch-exec');
+    expect(execButton.text()).toContain('下载选中（0）');
+    expect(execButton.attributes('disabled')).toBeDefined();
+
+    await wrapper.find('.cv-lightbox-select input').trigger('change');
+    expect(batch.toggle).toHaveBeenCalledWith('a');
+
+    count.value = 2;
+    await wrapper.vm.$nextTick();
+    expect(execButton.text()).toContain('下载选中（2）');
+    expect(execButton.attributes('disabled')).toBeUndefined();
+  });
+
+  it('执行批量操作先关闭灯箱再交给调用方', async () => {
+    const batch = createBatch({ action: 'delete', count: 2 });
+    const wrapper = mountLightbox();
+    openInlineImageGalleryLightbox(createGallery(['a', 'b']), 'a', { batch });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('.cv-lightbox-batch-exec').text()).toContain('删除选中（2）');
+    await wrapper.find('.cv-lightbox-batch-exec').trigger('click');
+    expect(inlineLightboxState.open).toBe(false);
+    expect(batch.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('图片池中当前图未加载完成时展示加载态，加载完成后显示图片', async () => {
+    const keys = ['a'];
+    const srcs = ref<Record<string, string>>({});
+    const gallery: InlineLightboxGallery = {
+      keys: () => keys,
+      srcOf: key => srcs.value[key] ?? '',
+      snapshotOf: () => snapshot,
+      downloadOf: () => undefined,
+      ensure: vi.fn(),
+    };
+    const wrapper = mountLightbox();
+    openInlineImageGalleryLightbox(gallery, 'a');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('img').exists()).toBe(false);
+    expect(wrapper.find('.cv-lightbox-img-loading').text()).toBe('图片加载中…');
+
+    srcs.value = { a: 'blob:a' };
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('img').attributes('src')).toBe('blob:a');
   });
 });

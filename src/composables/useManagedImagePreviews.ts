@@ -126,3 +126,103 @@ export function useManagedImagePreviews(
 
   return { previewUrls, previewStatus };
 }
+
+/** 大图图片池地址缓存句柄 */
+export interface LightboxImageCache {
+  /** 按 key 取图片地址，未加载完成返回空串 */
+  urlOf: (key: string) => string;
+  /** 请求加载图片（幂等；重复调用只会加载一次） */
+  ensure: (key: string, item: ManagedImageItem | undefined) => void;
+}
+
+/** 大图缓存上限：翻页会持续加载原图，超过后回收最久未访问的条目 */
+const LIGHTBOX_CACHE_LIMIT = 32;
+
+/**
+ * 大图图片池的 object URL 缓存
+ *
+ * 与缩略图缓存不同：图片滚出虚拟窗口不会回收，只有面板卸载时才统一回收，
+ * 否则在大图里翻页时被回收的图片会变空白。按 LRU 限制条目数，避免长期翻页
+ * 堆积全部原图；加载失败的 key 不缓存，翻回该图时自动重试。
+ *
+ * @returns 地址查询与加载入口
+ */
+export function useLightboxImageCache(): LightboxImageCache {
+  const urls = ref<Record<string, string>>({});
+  const objectUrls = new Map<string, string>();
+  const pendingKeys = new Set<string>();
+  let disposed = false;
+
+  onScopeDispose(() => {
+    disposed = true;
+    objectUrls.forEach(url => URL.revokeObjectURL(url));
+    objectUrls.clear();
+  });
+
+  /**
+   * 查询图片地址
+   * @param key 复合 key
+   */
+  function urlOf(key: string): string {
+    return urls.value[key] ?? '';
+  }
+
+  /**
+   * 按需加载图片
+   * @param key 复合 key
+   * @param item 管理项（不存在则忽略）
+   */
+  function ensure(key: string, item: ManagedImageItem | undefined): void {
+    if (!item || disposed) return;
+    if (objectUrls.has(key)) {
+      // 命中时刷新 LRU 顺序（Map 保持插入顺序）
+      const url = objectUrls.get(key)!;
+      objectUrls.delete(key);
+      objectUrls.set(key, url);
+      return;
+    }
+    if (pendingKeys.has(key)) return;
+    pendingKeys.add(key);
+    void loadImageBlob(item)
+      .then(blob => {
+        if (disposed) return;
+        const objectUrl = URL.createObjectURL(blob);
+        objectUrls.set(key, objectUrl);
+        urls.value = { ...urls.value, [key]: objectUrl };
+        evictOverflow();
+      })
+      .catch(error => {
+        console.warn(`[CosmosVision] 大图加载失败：${key}`, error);
+      })
+      .finally(() => {
+        pendingKeys.delete(key);
+      });
+  }
+
+  /**
+   * 回收超出上限的最久未访问条目
+   */
+  function evictOverflow(): void {
+    while (objectUrls.size > LIGHTBOX_CACHE_LIMIT) {
+      const oldestKey = objectUrls.keys().next().value;
+      if (oldestKey === undefined) return;
+      revoke(oldestKey);
+    }
+  }
+
+  /**
+   * 回收单个 key 的 object URL
+   * @param key 复合 key
+   */
+  function revoke(key: string): void {
+    const url = objectUrls.get(key);
+    if (!url) return;
+    URL.revokeObjectURL(url);
+    objectUrls.delete(key);
+    const nextUrls = { ...urls.value };
+    delete nextUrls[key];
+    urls.value = nextUrls;
+  }
+
+  return { urlOf, ensure };
+}
