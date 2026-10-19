@@ -239,6 +239,25 @@ describe('InlineImageLightbox 大图翻页与批量勾选', () => {
     expect(gallery.ensure).toHaveBeenCalledWith('b');
   });
 
+  it('翻页后新图仍是 Gallery 的激活项，不会被 display:none 隐藏', async () => {
+    const wrapper = mountLightbox();
+    openInlineImageGalleryLightbox(createGallery(['a', 'b', 'c']), 'a');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('.p-gallery-item').attributes('data-active')).toBeDefined();
+
+    await wrapper.find('.cv-lightbox-arrow--next').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(inlineLightboxState.key).toBe('b');
+    // GalleryItem 会在 mounted 时向 Gallery 自注册序号，序号与 activeIndex 错位时图片整块不可见
+    expect(wrapper.find('.p-gallery-item').attributes('data-active')).toBeDefined();
+    expect(wrapper.find('.p-gallery-item[data-active] img').attributes('src')).toBe('blob:b');
+
+    await wrapper.find('.cv-lightbox-arrow--prev').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('.p-gallery-item[data-active] img').attributes('src')).toBe('blob:a');
+  });
+
   it('方向键翻页，批量处理中禁用翻页按钮且忽略方向键', async () => {
     const wrapper = mountLightbox();
     openInlineImageGalleryLightbox(createGallery(['a', 'b']), 'a', {

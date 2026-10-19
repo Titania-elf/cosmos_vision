@@ -25,6 +25,7 @@ components.d.ts
 /.gemini
 /.grok
 /.zcode
+/.workbuddy-ai
 AGENTS.md
 CLAUDE.md
 

@@ -16,10 +16,12 @@
           @touchend="handleTouchEnd"
           @touchcancel="handleTouchEnd"
         >
-          <Gallery @zoom-change="handleZoomChange">
+          <!-- key 必须挂在 Gallery 上：GalleryItem 会在 mounted 时向 Gallery 自注册序号，
+               只给 GalleryItem 换 key 会让新序号与 Gallery 的 activeIndex 错位，翻页后图片被判为非激活而隐藏 -->
+          <Gallery :key="inlineLightboxState.key" @zoom-change="handleZoomChange">
             <GalleryContent class="cv-lightbox-gallery-content">
-              <GalleryItem :key="inlineLightboxState.key" :zoomed-scale="3">
-                <img v-if="currentSrc" :src="currentSrc" alt="放大图片" draggable="false" />
+              <GalleryItem ref="galleryItemRef" :zoomed-scale="3">
+                <img v-if="currentSrc" :src="currentSrc" alt="放大图片" draggable="false" @load="syncItemSize" />
                 <div v-else class="cv-lightbox-img-loading" role="status" aria-live="polite">图片加载中…</div>
               </GalleryItem>
             </GalleryContent>
@@ -277,6 +279,9 @@ const collapsedCharIndexes = ref(new Set<number>());
 /** 当前图片是否处于放大状态：放大后单指拖动用于平移，不触发滑动翻页 */
 const isZoomed = ref(false);
 
+/** GalleryItem 实例：图片解码完成后重算展示尺寸（Gallery 只在挂载 / 旋转 / 激活变化时计算一次） */
+const galleryItemRef = ref<{ calculateItemSize?: () => void } | null>(null);
+
 /** 触摸滑动起点（仅在单指且未放大时记录） */
 let touchStart: { x: number; y: number; time: number } | null = null;
 
@@ -412,8 +417,18 @@ function navigate(step: number): void {
   inlineLightboxState.src = gallery.srcOf(nextKey);
   inlineLightboxState.snapshot = gallery.snapshotOf(nextKey);
   inlineLightboxState.onDownload = gallery.downloadOf(nextKey);
-  // 切换后 GalleryItem 重新挂载，缩放状态归位
+  // 切换后 Gallery 整体重新挂载（GalleryItem 自注册序号归零），缩放状态归位
   isZoomed.value = false;
+}
+
+/**
+ * 图片解码完成后按容器重算显示尺寸
+ *
+ * 翻页时图片地址往往尚未就绪，GalleryItem 挂载时量不到 naturalWidth 会跳过尺寸计算，
+ * 待图片真正加载完成需要再算一次，否则新图会按原始像素铺开或保持上一张的尺寸。
+ */
+function syncItemSize(): void {
+  galleryItemRef.value?.calculateItemSize?.();
 }
 
 /**
