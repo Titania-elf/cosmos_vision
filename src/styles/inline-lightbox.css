@@ -99,7 +99,7 @@
   color: #38bdf8;
 }
 
-/* 左侧翻页与批量操作区：独立于右上工具栏，窄屏下自动换行 */
+/* 左上角序号与批量操作区：独立于右上工具栏，窄屏下自动换行 */
 .cv-lightbox-nav {
   @apply absolute flex items-center;
   top: max(1.5rem, env(safe-area-inset-top));
@@ -110,7 +110,44 @@
   flex-wrap: wrap;
 }
 
-.cv-lightbox-nav-btn,
+/* 翻页箭头：贴在大图左右两侧垂直居中；手机端隐藏，改用左右滑动 */
+.cv-lightbox-arrow {
+  @apply flex items-center justify-center rounded-full;
+  position: absolute;
+  top: 50%;
+  z-index: 100001;
+  width: 3rem;
+  height: 3rem;
+  transform: translateY(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(20, 20, 25, 0.55);
+  color: #ffffff;
+  font-size: 1.1rem;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition:
+    background 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.cv-lightbox-arrow--prev {
+  left: max(1.25rem, env(safe-area-inset-left));
+}
+
+.cv-lightbox-arrow--next {
+  right: max(1.25rem, env(safe-area-inset-right));
+}
+
+.cv-lightbox-arrow:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.cv-lightbox-arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .cv-lightbox-batch-exec {
   @apply flex items-center justify-center rounded-full;
   gap: 0.35rem;
@@ -122,20 +159,10 @@
   transition: all 0.2s ease;
 }
 
-.cv-lightbox-nav-btn {
-  width: var(--cvp-gallery-action-size, 2.5rem);
-}
-
-.cv-lightbox-nav-btn i {
-  font-size: var(--cvp-gallery-action-icon-size, 1.25rem);
-}
-
-.cv-lightbox-nav-btn:hover:not(:disabled),
 .cv-lightbox-batch-exec:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.25);
 }
 
-.cv-lightbox-nav-btn:disabled,
 .cv-lightbox-batch-exec:disabled {
   opacity: 0.4;
   cursor: default;
@@ -675,13 +702,8 @@
     max-width: calc(100vw - 2rem);
   }
 
-  .cv-lightbox-nav-btn,
   .cv-lightbox-select {
     height: var(--cvp-gallery-action-size, 2rem);
-  }
-
-  .cv-lightbox-nav-btn {
-    width: var(--cvp-gallery-action-size, 2rem);
   }
 
   .cv-lightbox-batch-exec {
@@ -694,5 +716,12 @@
     top: calc(max(1rem, env(safe-area-inset-top)) + var(--cvp-gallery-action-size, 2rem) + 0.5rem);
     right: max(1rem, env(safe-area-inset-right));
     width: calc(100vw - 2rem);
+  }
+}
+
+/* 触屏设备隐藏两侧箭头，改用手势左右滑动翻页 */
+@media (hover: none), (pointer: coarse) {
+  .cv-lightbox-arrow {
+    display: none;
   }
 }

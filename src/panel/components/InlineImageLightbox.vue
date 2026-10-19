@@ -8,8 +8,15 @@
         @click="handleOverlayClick"
       >
         <!-- 图片区：PrimeVue Gallery 提供捏合缩放 / 拖拽平移 / 点击切换缩放 -->
-        <div class="cv-lightbox-img-box">
-          <Gallery>
+        <div
+          class="cv-lightbox-img-box"
+          @click.capture="handleImgBoxClickCapture"
+          @touchstart="handleTouchStart"
+          @touchmove="handleTouchMove"
+          @touchend="handleTouchEnd"
+          @touchcancel="handleTouchEnd"
+        >
+          <Gallery @zoom-change="handleZoomChange">
             <GalleryContent class="cv-lightbox-gallery-content">
               <GalleryItem :key="inlineLightboxState.key" :zoomed-scale="3">
                 <img v-if="currentSrc" :src="currentSrc" alt="放大图片" draggable="false" />
@@ -17,29 +24,33 @@
               </GalleryItem>
             </GalleryContent>
 
-            <!-- 左侧翻页与批量操作区：图片池模式下才出现 -->
-            <div v-if="galleryTotal > 0" class="cv-lightbox-nav" @click.stop>
+            <!-- 翻页箭头：贴在图片左右两侧，手机端隐藏改用左右滑动 -->
+            <template v-if="galleryTotal > 1">
               <button
                 type="button"
-                class="cv-lightbox-nav-btn"
+                class="cv-lightbox-arrow cv-lightbox-arrow--prev"
                 title="上一张（←）"
                 aria-label="上一张"
                 :disabled="!canNavigate"
-                @click="navigate(-1)"
+                @click.stop="navigate(-1)"
               >
                 <i class="fa-solid fa-chevron-left" />
               </button>
-              <span class="cv-lightbox-nav-counter">{{ Math.max(currentIndex, 0) + 1 }} / {{ galleryTotal }}</span>
               <button
                 type="button"
-                class="cv-lightbox-nav-btn"
+                class="cv-lightbox-arrow cv-lightbox-arrow--next"
                 title="下一张（→）"
                 aria-label="下一张"
                 :disabled="!canNavigate"
-                @click="navigate(1)"
+                @click.stop="navigate(1)"
               >
                 <i class="fa-solid fa-chevron-right" />
               </button>
+            </template>
+
+            <!-- 左上角：序号与批量勾选/执行 -->
+            <div v-if="galleryTotal > 0" class="cv-lightbox-nav" @click.stop>
+              <span class="cv-lightbox-nav-counter">{{ Math.max(currentIndex, 0) + 1 }} / {{ galleryTotal }}</span>
               <template v-if="inlineLightboxState.batch">
                 <label
                   class="cv-lightbox-select"
@@ -263,6 +274,15 @@ const copiedKey = ref<string | null>(null);
 /** 折叠的角色提示词序号集合（默认全部折叠） */
 const collapsedCharIndexes = ref(new Set<number>());
 
+/** 当前图片是否处于放大状态：放大后单指拖动用于平移，不触发滑动翻页 */
+const isZoomed = ref(false);
+
+/** 触摸滑动起点（仅在单指且未放大时记录） */
+let touchStart: { x: number; y: number; time: number } | null = null;
+
+/** 最近一次滑动结束时间：用于吞掉松手后浏览器补发的 click，避免误触缩放 */
+let lastSwipeAt = 0;
+
 /** 复制成功态还原定时器 */
 let copiedTimer = 0;
 
@@ -345,6 +365,8 @@ watch(
       infoCollapsed.value = true;
       infoPanelVisible.value = false;
       collapsedCharIndexes.value = new Set(characters.value.map((_, index) => index));
+      isZoomed.value = false;
+      touchStart = null;
       document.addEventListener('keydown', handleKeydown);
     } else {
       infoPanelVisible.value = false;
@@ -390,6 +412,68 @@ function navigate(step: number): void {
   inlineLightboxState.src = gallery.srcOf(nextKey);
   inlineLightboxState.snapshot = gallery.snapshotOf(nextKey);
   inlineLightboxState.onDownload = gallery.downloadOf(nextKey);
+  // 切换后 GalleryItem 重新挂载，缩放状态归位
+  isZoomed.value = false;
+}
+
+/**
+ * 记录 Gallery 缩放状态（放大后不触发滑动翻页）
+ * @param scale 当前缩放倍数
+ */
+function handleZoomChange(scale: number): void {
+  isZoomed.value = scale > 1;
+}
+
+/**
+ * 记录滑动起点；多指手势留给 Gallery 做捏合缩放
+ * @param event 触摸开始事件
+ */
+function handleTouchStart(event: TouchEvent): void {
+  touchStart = null;
+  if (isZoomed.value || !canNavigate.value || event.touches.length !== 1) return;
+  const touch = event.touches[0];
+  touchStart = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+}
+
+/**
+ * 横向滑动时阻止默认行为，避免松手后被当作图片点击而触发缩放
+ * @param event 触摸移动事件
+ */
+function handleTouchMove(event: TouchEvent): void {
+  if (!touchStart || event.touches.length !== 1) return;
+  const touch = event.touches[0];
+  const dx = touch.clientX - touchStart.x;
+  const dy = touch.clientY - touchStart.y;
+  if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) event.preventDefault();
+}
+
+/**
+ * 单指水平滑动超过阈值时切换上一张 / 下一张
+ * @param event 触摸结束事件
+ */
+function handleTouchEnd(event: TouchEvent): void {
+  const start = touchStart;
+  touchStart = null;
+  if (!start || isZoomed.value || !canNavigate.value) return;
+  const touch = event.changedTouches[0];
+  if (!touch) return;
+  const dx = touch.clientX - start.x;
+  const dy = touch.clientY - start.y;
+  const elapsed = Date.now() - start.time;
+  if (elapsed > 1000) return;
+  if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+  lastSwipeAt = Date.now();
+  navigate(dx < 0 ? 1 : -1);
+}
+
+/**
+ * 滑动松手后吞掉补发的 click，避免被 GalleryItem 当作点击缩放
+ * @param event 点击事件
+ */
+function handleImgBoxClickCapture(event: MouseEvent): void {
+  if (Date.now() - lastSwipeAt > 350) return;
+  event.stopPropagation();
+  event.preventDefault();
 }
 
 /**

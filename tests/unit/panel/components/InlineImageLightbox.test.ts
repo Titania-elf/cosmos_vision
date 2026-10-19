@@ -223,16 +223,17 @@ describe('InlineImageLightbox 大图翻页与批量勾选', () => {
     await wrapper.find('.cv-lightbox-toggle-btn').trigger('click');
     expect(wrapper.findAll('.cv-lightbox-prompt-content')[0].text()).toBe('prompt-a');
 
-    const navButtons = wrapper.findAll('.cv-lightbox-nav-btn');
-    await navButtons[1].trigger('click');
+    const next = wrapper.find('.cv-lightbox-arrow--next');
+    const prev = wrapper.find('.cv-lightbox-arrow--prev');
+    await next.trigger('click');
     expect(inlineLightboxState.key).toBe('b');
     expect(wrapper.find('img').attributes('src')).toBe('blob:b');
     expect(wrapper.findAll('.cv-lightbox-prompt-content')[0].text()).toBe('prompt-b');
 
-    await wrapper.findAll('.cv-lightbox-nav-btn')[0].trigger('click');
+    await prev.trigger('click');
     expect(inlineLightboxState.key).toBe('a');
     // 首尾循环：从第一张继续往前翻到末张
-    await wrapper.findAll('.cv-lightbox-nav-btn')[0].trigger('click');
+    await prev.trigger('click');
     expect(inlineLightboxState.key).toBe('c');
     expect(wrapper.find('.cv-lightbox-nav-counter').text()).toBe('3 / 3');
     expect(gallery.ensure).toHaveBeenCalledWith('b');
@@ -245,9 +246,9 @@ describe('InlineImageLightbox 大图翻页与批量勾选', () => {
     });
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.findAll('.cv-lightbox-nav-btn').every(button => button.attributes('disabled') !== undefined)).toBe(
-      true,
-    );
+    expect(
+      wrapper.findAll('.cv-lightbox-arrow').every(button => button.attributes('disabled') !== undefined),
+    ).toBe(true);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
     await wrapper.vm.$nextTick();
     expect(inlineLightboxState.key).toBe('a');
@@ -297,6 +298,77 @@ describe('InlineImageLightbox 大图翻页与批量勾选', () => {
     expect(batch.execute).toHaveBeenCalledTimes(1);
   });
 
+  it('手机端单指左右滑动切换，纵向滑动不切换', async () => {
+    const wrapper = mountLightbox();
+    openInlineImageGalleryLightbox(createGallery(['a', 'b', 'c']), 'a');
+    await wrapper.vm.$nextTick();
+    const box = wrapper.find('.cv-lightbox-img-box').element;
+
+    dispatchTouch(box, 'touchstart', [{ x: 300, y: 200 }]);
+    dispatchTouch(box, 'touchend', [{ x: 200, y: 205 }]);
+    await wrapper.vm.$nextTick();
+    expect(inlineLightboxState.key).toBe('b');
+
+    dispatchTouch(box, 'touchstart', [{ x: 200, y: 200 }]);
+    dispatchTouch(box, 'touchend', [{ x: 300, y: 198 }]);
+    await wrapper.vm.$nextTick();
+    expect(inlineLightboxState.key).toBe('a');
+
+    dispatchTouch(box, 'touchstart', [{ x: 300, y: 200 }]);
+    dispatchTouch(box, 'touchend', [{ x: 260, y: 400 }]);
+    await wrapper.vm.$nextTick();
+    expect(inlineLightboxState.key).toBe('a');
+
+    // 阈值不足的轻微滑动不切换
+    dispatchTouch(box, 'touchstart', [{ x: 300, y: 200 }]);
+    dispatchTouch(box, 'touchend', [{ x: 275, y: 200 }]);
+    await wrapper.vm.$nextTick();
+    expect(inlineLightboxState.key).toBe('a');
+  });
+
+  it('滑动松手后补发的 click 被吞掉，不会误触缩放', async () => {
+    const wrapper = mountLightbox();
+    openInlineImageGalleryLightbox(createGallery(['a', 'b']), 'a');
+    await wrapper.vm.$nextTick();
+    const gallery = wrapper.findComponent({ name: 'Gallery' });
+    const emitSpy = vi.spyOn(gallery.vm, '$emit');
+    const box = wrapper.find('.cv-lightbox-img-box').element;
+
+    dispatchTouch(box, 'touchstart', [{ x: 300, y: 200 }]);
+    dispatchTouch(box, 'touchend', [{ x: 180, y: 200 }]);
+    await wrapper.vm.$nextTick();
+    expect(inlineLightboxState.key).toBe('b');
+
+    box.querySelector('img')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(emitSpy).not.toHaveBeenCalledWith('zoom-change', expect.anything());
+  });
+
+  it('图片放大后滑动用于平移，不切换图片', async () => {
+    const wrapper = mountLightbox();
+    openInlineImageGalleryLightbox(createGallery(['a', 'b']), 'a');
+    await wrapper.vm.$nextTick();
+    wrapper.findComponent({ name: 'Gallery' }).vm.$emit('zoom-change', 3);
+    await wrapper.vm.$nextTick();
+
+    const box = wrapper.find('.cv-lightbox-img-box').element;
+    dispatchTouch(box, 'touchstart', [{ x: 300, y: 200 }]);
+    dispatchTouch(box, 'touchend', [{ x: 150, y: 200 }]);
+    await wrapper.vm.$nextTick();
+    expect(inlineLightboxState.key).toBe('a');
+  });
+
+  it('批量处理中禁止滑动翻页', async () => {
+    const wrapper = mountLightbox();
+    openInlineImageGalleryLightbox(createGallery(['a', 'b']), 'a', { batch: createBatch({ disabled: true }) });
+    await wrapper.vm.$nextTick();
+
+    const box = wrapper.find('.cv-lightbox-img-box').element;
+    dispatchTouch(box, 'touchstart', [{ x: 300, y: 200 }]);
+    dispatchTouch(box, 'touchend', [{ x: 150, y: 200 }]);
+    await wrapper.vm.$nextTick();
+    expect(inlineLightboxState.key).toBe('a');
+  });
+
   it('图片池中当前图未加载完成时展示加载态，加载完成后显示图片', async () => {
     const keys = ['a'];
     const srcs = ref<Record<string, string>>({});
@@ -319,3 +391,12 @@ describe('InlineImageLightbox 大图翻页与批量勾选', () => {
     expect(wrapper.find('img').attributes('src')).toBe('blob:a');
   });
 });
+
+/** 派发模拟触摸事件（jsdom 无 TouchEvent，用属性注入的 Event 代替） */
+function dispatchTouch(target: Element, type: string, touches: { x: number; y: number }[]): void {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  const points = touches.map(touch => ({ clientX: touch.x, clientY: touch.y }));
+  Object.defineProperty(event, 'touches', { value: type === 'touchend' ? [] : points });
+  Object.defineProperty(event, 'changedTouches', { value: points });
+  target.dispatchEvent(event);
+}
