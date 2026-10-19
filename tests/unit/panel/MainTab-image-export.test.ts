@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   listFavorites: vi.fn(),
   listTemporaries: vi.fn(),
   requestOptions: vi.fn(),
+  showConfirm: vi.fn(),
+  deleteFavorite: vi.fn(),
   triggerBrowserDownload: vi.fn(),
 }));
 
@@ -21,6 +23,7 @@ vi.mock('@/store/settings', () => ({ useSettingsStore: () => ({ settings: {} }) 
 vi.mock('@/services/inline-image/favorites-cache', async importOriginal => ({
   ...(await importOriginal<typeof import('@/services/inline-image/favorites-cache')>()),
   listInlineImageFavoriteMeta: mocks.listFavorites,
+  deleteInlineImageFavorite: mocks.deleteFavorite,
 }));
 vi.mock('@/services/inline-image/temporary-images', async importOriginal => ({
   ...(await importOriginal<typeof import('@/services/inline-image/temporary-images')>()),
@@ -44,7 +47,7 @@ let wrapper: VueWrapper;
 async function mountTab() {
   wrapper = shallowMount(MainTab, {
     props: { subTab: 'data' },
-    global: { provide: { [IMAGE_DOWNLOAD_OPTIONS_REQUEST_KEY]: mocks.requestOptions } },
+    global: { provide: { [IMAGE_DOWNLOAD_OPTIONS_REQUEST_KEY]: mocks.requestOptions, showConfirm: mocks.showConfirm } },
   });
   await flushPromises();
   return wrapper.findComponent({ name: 'InlineFavoriteDataPanel' });
@@ -55,6 +58,8 @@ beforeEach(() => {
   mocks.listFavorites.mockResolvedValue([{ ...meta, id: 1, createdAt: 1, filePath: '/favorite.png' }]);
   mocks.listTemporaries.mockResolvedValue([{ ...meta, id: '2', createdAt: 2 }]);
   mocks.requestOptions.mockResolvedValue(createDefaultInlineImageDownloadOptions());
+  mocks.showConfirm.mockResolvedValue(false);
+  mocks.deleteFavorite.mockResolvedValue(undefined);
   mocks.loadImageBlob.mockImplementation(async (item: ManagedImageItem) => new Blob([item.key]));
 });
 afterEach(() => wrapper?.unmount());
@@ -62,7 +67,7 @@ afterEach(() => wrapper?.unmount());
 describe('图片批量导出流程', () => {
   it('少量收藏和临时图片逐张下载，忽略重复及失效选择后判断打包数量', async () => {
     const panel = await mountTab();
-    panel.vm.$emit('export-items', [...Array(31).fill('favorite:1'), 'temporary:2', 'missing']);
+    panel.vm.$emit('download-items', [...Array(31).fill('favorite:1'), 'temporary:2', 'missing']);
     await flushPromises();
 
     expect(mocks.loadImageBlob).toHaveBeenCalledTimes(2);
@@ -86,7 +91,7 @@ describe('图片批量导出流程', () => {
       })),
     );
     const panel = await mountTab();
-    panel.vm.$emit('export-items', [
+    panel.vm.$emit('download-items', [
       ...Array.from({ length: count - 1 }, (_, index) => `favorite:${index + 1}`),
       'temporary:2',
     ]);
@@ -115,8 +120,8 @@ describe('图片批量导出流程', () => {
       }),
     );
     const panel = await mountTab();
-    panel.vm.$emit('export-items', ['favorite:1']);
-    panel.vm.$emit('export-items', ['temporary:2']);
+    panel.vm.$emit('download-items', ['favorite:1']);
+    panel.vm.$emit('download-items', ['temporary:2']);
     await flushPromises();
     expect(mocks.requestOptions).toHaveBeenCalledTimes(1);
     expect(panel.props('busy')).toBe(true);
@@ -134,11 +139,66 @@ describe('图片批量导出流程', () => {
       return new Blob([item.key]);
     });
     const panel = await mountTab();
-    panel.vm.$emit('export-items', ['favorite:1', 'temporary:2']);
+    panel.vm.$emit('download-items', ['favorite:1', 'temporary:2']);
     await flushPromises();
     expect(mocks.triggerBrowserDownload).toHaveBeenCalledTimes(1);
     expect(toastr.warning).toHaveBeenCalledWith('已导出 1 张图片，1 张加载或转换失败，已跳过');
     expect(panel.props('busy')).toBe(false);
     expect(panel.props('exportProgress')).toBeNull();
+  });
+
+  it('单张下载只处理指定图片，取消后重试不会带上其他图片', async () => {
+    mocks.requestOptions.mockResolvedValueOnce(null);
+    const panel = await mountTab();
+    panel.vm.$emit('download-items', ['favorite:1', 'temporary:2']);
+    await flushPromises();
+    panel.vm.$emit('download-items', ['favorite:1']);
+    await flushPromises();
+    expect(mocks.loadImageBlob).toHaveBeenCalledTimes(1);
+    expect(mocks.loadImageBlob.mock.calls[0][0].key).toBe('favorite:1');
+    expect(mocks.triggerBrowserDownload).toHaveBeenCalledTimes(1);
+    expect(mocks.requestOptions).toHaveBeenCalledTimes(2);
+  });
+
+  it('所有图片失败后解除忙碌状态并清理进度，允许重试', async () => {
+    mocks.loadImageBlob.mockRejectedValue(new Error('missing'));
+    const panel = await mountTab();
+    panel.vm.$emit('download-items', ['favorite:1', 'temporary:2']);
+    await flushPromises();
+    expect(mocks.triggerBrowserDownload).not.toHaveBeenCalled();
+    expect(toastr.error).toHaveBeenCalledWith('没有可成功导出的图片');
+    expect(panel.props('busy')).toBe(false);
+    expect(panel.props('exportProgress')).toBeNull();
+
+    mocks.loadImageBlob.mockResolvedValue(new Blob(['retry']));
+    panel.vm.$emit('download-items', ['favorite:1']);
+    await flushPromises();
+    expect(mocks.triggerBrowserDownload).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])('删除确认期间锁定操作，确认结果为 %s 时只处理相应选择', async confirmed => {
+    let resolveConfirm!: (value: boolean) => void;
+    mocks.showConfirm.mockReturnValue(
+      new Promise(resolve => {
+        resolveConfirm = resolve;
+      }),
+    );
+    const panel = await mountTab();
+    panel.vm.$emit('delete-items', ['favorite:1']);
+    panel.vm.$emit('delete-items', ['favorite:1']);
+    panel.vm.$emit('download-items', ['temporary:2']);
+    await flushPromises();
+    expect(mocks.showConfirm).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteFavorite).not.toHaveBeenCalled();
+    expect(mocks.requestOptions).not.toHaveBeenCalled();
+    expect(panel.props('busy')).toBe(true);
+
+    resolveConfirm(confirmed);
+    await flushPromises();
+    expect(mocks.deleteFavorite).toHaveBeenCalledTimes(confirmed ? 1 : 0);
+    if (confirmed) expect(mocks.deleteFavorite).toHaveBeenCalledWith(1);
+    expect(panel.props('items')).toHaveLength(confirmed ? 1 : 2);
+    expect(panel.props('busy')).toBe(false);
+    expect(mocks.triggerBrowserDownload).not.toHaveBeenCalled();
   });
 });

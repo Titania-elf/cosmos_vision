@@ -3,18 +3,31 @@
     <template #actions>
       <CvLayoutToggle v-model="layout" />
       <CvMiniButton
-        label="批量导出"
-        icon="fa-regular fa-file-export"
-        :title="`导出当前筛选的 ${visibleItems.length} 张图片：30 张及以下逐张下载，超过 30 张打包为 ZIP`"
-        :disabled="isSelectionToggleDisabled"
-        @click="exportFiltered"
-      />
-      <CvMiniButton
-        :label="isSelecting ? '取消选择' : '选择'"
+        :label="isSelecting ? '取消批量' : '批量操作'"
         icon="fa-regular fa-check-double"
         :disabled="isSelectionToggleDisabled"
-        @click="toggleSelectMode"
+        @click="toggleBatchMenu"
       />
+      <Popover ref="batchMenuPopover" :base-z-index="MACRO_POPOVER_BASE_Z_INDEX">
+        <div class="flex w-max flex-col items-stretch gap-(--cv-space-sm)">
+          <div class="text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">请选择批量操作</div>
+          <CvMiniButton
+            class="cv-card-menu-action"
+            label="批量下载"
+            icon="fa-regular fa-download"
+            :disabled="isSelectionToggleDisabled"
+            @click="startBatchAction('download')"
+          />
+          <CvMiniButton
+            class="cv-card-menu-action"
+            label="批量删除"
+            icon="fa-regular fa-trash"
+            tone="error"
+            :disabled="isSelectionToggleDisabled"
+            @click="startBatchAction('delete')"
+          />
+        </div>
+      </Popover>
     </template>
 
     <div
@@ -63,6 +76,7 @@
             :options="typeOptions"
             option-label="label"
             option-value="value"
+            :disabled="busy"
             fluid
             class="w-full"
           />
@@ -75,6 +89,7 @@
             :options="characterOptions"
             option-label="label"
             option-value="value"
+            :disabled="busy"
             fluid
             class="w-full"
           />
@@ -87,6 +102,7 @@
             :options="chatOptions"
             option-label="label"
             option-value="value"
+            :disabled="busy"
             fluid
             class="w-full"
           />
@@ -105,10 +121,14 @@
               : `正在处理图片 ${exportProgress.completed} / ${exportProgress.total}`
           }}
         </template>
-        <template v-else
-          >当前筛选 {{ visibleItems.length }} 张；30 张及以下逐张下载，超过 30 张打包为
-          ZIP，也可选择图片后导出。</template
-        >
+        <template v-else-if="batchAction === 'download'">
+          批量下载：请勾选要下载的图片，或全选当前筛选的 {{ visibleItems.length }} 张图片。30 张及以下逐张下载，超过 30
+          张打包为 ZIP。
+        </template>
+        <template v-else-if="batchAction === 'delete'">
+          批量删除：请勾选要删除的图片，或全选当前筛选的 {{ visibleItems.length }} 张图片。
+        </template>
+        <template v-else>当前筛选 {{ visibleItems.length }} 张；点击“批量操作”选择下载或删除。</template>
       </div>
 
       <div v-if="visibleItems.length" v-bind="containerProps" class="max-h-(--cv-favorite-grid-max-h,36rem)">
@@ -360,8 +380,13 @@
             :disabled="busy || !visibleItems.length"
             @click="toggleSelectAll"
           />
-          <CvMiniButton label="导出选中" :disabled="!selectedCount || busy" @click="exportSelected" />
-          <CvMiniButton label="删除" tone="error" :disabled="!selectedCount || busy" @click="deleteSelected" />
+          <CvMiniButton
+            :label="batchAction === 'download' ? '下载选中' : '删除选中'"
+            :icon="batchAction === 'download' ? 'fa-regular fa-download' : 'fa-regular fa-trash'"
+            :tone="batchAction === 'delete' ? 'error' : 'primary'"
+            :disabled="!selectedCount || busy"
+            @click="executeBatchAction"
+          />
           <CvMiniButton label="取消" :disabled="busy" @click="clearSelection" />
         </div>
       </div>
@@ -398,6 +423,7 @@ interface FilterOption {
 }
 
 type ManagedTypeFilter = 'all' | ManagedImageKind;
+type BatchAction = 'download' | 'delete';
 
 const ALL_CHARACTER_KEY = '__all_character__';
 const ALL_CHAT_KEY = '__all_chat__';
@@ -417,7 +443,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'download-items': [keys: string[]];
-  'export-items': [keys: string[]];
   'delete-items': [keys: string[]];
   'toggle-kind': [key: string];
 }>();
@@ -425,7 +450,9 @@ const emit = defineEmits<{
 const selectedType = ref<ManagedTypeFilter>('all');
 const selectedCharacterKey = ref(ALL_CHARACTER_KEY);
 const selectedChatId = ref(ALL_CHAT_KEY);
-const isSelecting = ref(false);
+const batchAction = ref<BatchAction | null>(null);
+const batchMenuPopover = ref<MacroPopoverInstance | null>(null);
+const isSelecting = computed(() => batchAction.value !== null);
 const selectedKeys = ref<string[]>([]);
 // 每张卡片一个浮层实例；虚拟滚动行卸载时由函数 ref 自动移除，无需响应式
 const cardMenuPopovers = new Map<string, MacroPopoverInstance>();
@@ -492,20 +519,34 @@ watch(
   () => visibleItems.value.map(item => item.key),
   keys => {
     selectedKeys.value = selectedKeys.value.filter(key => keys.includes(key));
-    if (!keys.length) isSelecting.value = false;
+    if (!keys.length) {
+      clearSelection();
+      batchMenuPopover.value?.hide();
+    }
   },
 );
 
-/** 切换显式多选模式 */
-function toggleSelectMode(): void {
+/** 先选择操作类型，再进入对应的图片多选模式 */
+function toggleBatchMenu(event: Event): void {
   if (isSelectionToggleDisabled.value) return;
-  isSelecting.value = !isSelecting.value;
-  if (!isSelecting.value) selectedKeys.value = [];
+  if (isSelecting.value) {
+    clearSelection();
+    return;
+  }
+  batchMenuPopover.value?.toggle(event);
+}
+
+/** 选择批量操作时清空旧选择，避免把上次下载的范围用于删除 */
+function startBatchAction(action: BatchAction): void {
+  if (isSelectionToggleDisabled.value) return;
+  batchMenuPopover.value?.hide();
+  selectedKeys.value = [];
+  batchAction.value = action;
 }
 
 /** 退出多选并清空已选项 */
 function clearSelection(): void {
-  isSelecting.value = false;
+  batchAction.value = null;
   selectedKeys.value = [];
 }
 
@@ -530,29 +571,15 @@ function toggleItem(key: string): void {
 
 /** 切换当前可见范围的全选状态 */
 function toggleSelectAll(): void {
-  if (props.busy) return;
+  if (!isSelecting.value || props.loading || props.busy) return;
   selectedKeys.value = isAllSelected.value ? [] : visibleItems.value.map(item => item.key);
 }
 
-/** 导出当前筛选的全部图片，包含尚未滚动到的图片 */
-function exportFiltered(): void {
-  if (isSelectionToggleDisabled.value) return;
-  emit(
-    'export-items',
-    visibleItems.value.map(item => item.key),
-  );
-}
-
-/** 批量导出当前已选图片 */
-function exportSelected(): void {
-  if (!selectedCount.value || props.busy) return;
-  emit('export-items', [...selectedKeys.value]);
-}
-
-/** 批量删除当前已选图片 */
-function deleteSelected(): void {
-  if (!selectedCount.value || props.busy) return;
-  emit('delete-items', selectedKeys.value);
+/** 仅执行当前模式对应的操作，并固定本次已选图片范围 */
+function executeBatchAction(): void {
+  if (!batchAction.value || !selectedCount.value || props.loading || props.busy) return;
+  if (batchAction.value === 'download') emit('download-items', [...selectedKeys.value]);
+  else emit('delete-items', [...selectedKeys.value]);
 }
 
 /**

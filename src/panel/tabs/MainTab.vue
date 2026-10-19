@@ -85,7 +85,6 @@
         :busy="isManagedImagesBusy"
         :export-progress="managedExportProgress"
         @download-items="downloadManagedItems"
-        @export-items="downloadManagedItems"
         @delete-items="deleteManagedItems"
         @toggle-kind="toggleManagedItemKind"
       />
@@ -509,13 +508,14 @@ async function deleteManagedItems(keys: string[]): Promise<void> {
   const favoriteIds = buckets.favoriteItems.map(item => Number(item.sourceId));
   const temporaryIds = buckets.temporaryItems.map(item => String(item.sourceId));
   if (!favoriteIds.length && !temporaryIds.length) return;
-  const confirmed = await confirmDangerAction(
-    '删除图片',
-    buildManagedDeleteMessage(favoriteIds.length, temporaryIds.length),
-    '删除',
-  );
-  if (!confirmed) return;
-  await runManagedAction(() => executeManagedDelete({ favoriteIds, temporaryIds }), '删除选中图片失败');
+  await runManagedAction(async () => {
+    const confirmed = await confirmDangerAction(
+      '删除图片',
+      buildManagedDeleteMessage(favoriteIds.length, temporaryIds.length),
+      '删除',
+    );
+    if (confirmed) await executeManagedDelete({ favoriteIds, temporaryIds });
+  }, '删除选中图片失败');
 }
 
 /**
