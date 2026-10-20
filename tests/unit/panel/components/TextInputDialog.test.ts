@@ -1,12 +1,18 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import PrimeVue from 'primevue/config';
 import Select from 'primevue/select';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import { createImagePromptPreset } from '@/constants/image-prompt';
 import TextInputDialog from '@/panel/components/TextInputDialog.vue';
 import { useSettingsStore } from '@/store/settings';
+
+vi.mock('@/services/translation/text-translation', () => ({
+  translateText: vi.fn(async (text: string) => `translated:${text}`),
+}));
+
+import { translateText } from '@/services/translation/text-translation';
 
 /**
  * 挂载文本输入弹窗组件
@@ -197,5 +203,42 @@ describe('TextInputDialog 弹窗预设切换与整体文本联动', () => {
       { id: '', name: '原图 LoRA' },
       { id: 'L1', name: 'LoRA Group 1' },
     ]);
+  });
+});
+
+describe('TextInputDialog 中英翻译', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.mocked(translateText).mockClear();
+  });
+
+  it('单字段输入弹窗展示翻译按钮，提示词编辑弹窗不展示', async () => {
+    const single = mountDialog({ enablePresetSelector: false, value: '追加要求' });
+    await nextTick();
+
+    expect(document.body.textContent).toContain('中→英');
+    expect(document.body.textContent).toContain('英→中');
+    single.unmount();
+
+    const pair = mountDialog();
+    await nextTick();
+
+    expect(document.body.textContent).not.toContain('中→英');
+    pair.unmount();
+  });
+
+  it('点击中→英后将整体内容替换为译文', async () => {
+    const wrapper = mountDialog({ enablePresetSelector: false, value: '一个女孩，微笑' });
+    await nextTick();
+
+    const button = Array.from(document.querySelectorAll('button')).find(el =>
+      el.textContent?.includes('中→英'),
+    );
+    expect(button).toBeTruthy();
+    button!.click();
+    await flushPromises();
+
+    expect(vi.mocked(translateText)).toHaveBeenCalledWith('一个女孩，微笑', 'zh-en', expect.anything());
+    expect(wrapper.emitted('update:value')?.at(-1)).toEqual(['translated:一个女孩，微笑']);
   });
 });
