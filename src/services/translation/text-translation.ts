@@ -1,83 +1,94 @@
-import type { PromptLlmSettings } from '@/constants/prompt-llm';
-import { requestPromptLlmWithAccounts } from '@/services/prompt-llm/runtime-request';
-import { getOptionalTavernHelper } from '@/services/tavern-helper/availability';
-import {
-  buildCustomApi,
-  buildGenerateRawMessagesRequest,
-  type TavernHelperRolePrompt,
-} from '@/services/tavern-helper/prompt-llm';
+import { getRequestHeaders } from '@sillytavern/script';
+import { extension_settings } from '@sillytavern/scripts/extensions';
 
-/** 翻译方向：中译英 / 英译中 */
 export type TranslationDirection = 'zh-en' | 'en-zh';
+export type TranslationProvider = 'google' | 'deepl';
 
-/**
- * 生图提示词翻译系统指令
- * 保留标签语法与占位符，便于译文直接回填生图提示词
- */
-const TRANSLATION_SYSTEM_PROMPT = [
-  '你是 AI 生图提示词的中英互译引擎，只做翻译，不回答或解释。',
-  '输出要求：',
-  '1. 只输出译文本身，不要添加引号、代码块、前缀或说明。',
-  '2. 保留原文的换行、逗号分隔、括号权重（如 (smile:1.2)）、LoRA 标记（如 <lora:name:0.8>）、BREAK 以及 {{...}} 占位符，不要翻译或改写它们。',
-  '3. 中文译为英文时使用 Danbooru / NovelAI 风格的英文标签词。',
-  '4. 英文译为中文时逐项翻译，保持标签顺序与分隔符不变，不要增删内容。',
-].join('\n');
+const TRANSLATION_TIMEOUT_MS = 30_000;
+const GOOGLE_CHUNK_SIZE = 5000;
 
-/**
- * 构建翻译请求消息
- * @param text 待翻译文本
- * @param direction 翻译方向
- * @returns system 与 user 消息
- */
-function buildTranslationMessages(text: string, direction: TranslationDirection): TavernHelperRolePrompt[] {
-  const targetLanguage = direction === 'zh-en' ? '英文' : '中文';
-  return [
-    { role: 'system', content: TRANSLATION_SYSTEM_PROMPT },
-    { role: 'user', content: `将 <text> 标签内的文本翻译成${targetLanguage}：\n<text>\n${text}\n</text>` },
-  ];
-}
-
-/**
- * 清理模型可能附带的代码块、标签回声、字段名前缀与整体引号
- * @param raw 模型原始输出
- * @returns 可直接回填的译文
- */
-function sanitizeTranslation(raw: string): string {
-  let text = raw.trim();
-  const fenced = text.match(/^```[a-zA-Z0-9_-]*\s*\r?\n([\s\S]*?)\r?\n?```$/);
-  if (fenced) text = fenced[1].trim();
-  text = text.replace(/^<text>\s*/i, '').replace(/\s*<\/text>$/i, '').trim();
-  text = text.replace(/^(?:翻译|译文|英文|中文|translation|english|chinese)\s*[:：]\s*/i, '').trim();
-  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith('“') && text.endsWith('”'))) {
-    text = text.slice(1, -1).trim();
+/** 将长文本按换行、标点或空格分段，避免超出 Google 单次请求限制。 */
+function splitGoogleText(source: string): string[] {
+  const chunks: string[] = [];
+  let remaining = source;
+  while (remaining.length > GOOGLE_CHUNK_SIZE) {
+    const prefix = remaining.slice(0, GOOGLE_CHUNK_SIZE);
+    const boundary = Math.max(
+      prefix.lastIndexOf('\n'),
+      prefix.lastIndexOf('，'),
+      prefix.lastIndexOf(','),
+      prefix.lastIndexOf(' '),
+    );
+    let end = boundary >= GOOGLE_CHUNK_SIZE / 2 ? boundary + 1 : GOOGLE_CHUNK_SIZE;
+    // 不在 UTF-16 代理对中间截断。
+    if (/[\uD800-\uDBFF]/.test(remaining[end - 1])) end -= 1;
+    chunks.push(remaining.slice(0, end));
+    remaining = remaining.slice(end);
   }
-  return text;
+  if (remaining) chunks.push(remaining);
+  return chunks;
 }
 
 /**
- * 使用已配置的提示词 LLM 账号做中英互译
- * 复用账号故障转移能力；不经过提示词预设，避免预设指令干扰翻译
- * @param text 待翻译文本
- * @param direction 翻译方向
- * @param settings 提示词 LLM 设置（账号与超时）
- * @returns 清洗后的译文
+ * 使用酒馆的翻译服务接口，DeepL 密钥与 Free / Pro 设置沿用酒馆配置。
+ * 只返回译文，不修改原文或调用提示词 LLM。
  */
 export async function translateText(
   text: string,
   direction: TranslationDirection,
-  settings: PromptLlmSettings,
+  provider: TranslationProvider = 'google',
+  signal?: AbortSignal,
 ): Promise<string> {
   const source = text.trim();
   if (!source) return '';
-  const tavernHelper = getOptionalTavernHelper();
-  if (!tavernHelper) throw new Error('酒馆助手不可用，无法翻译');
+  if (provider !== 'google' && provider !== 'deepl') throw new Error('不支持的翻译服务');
 
-  const messages = buildTranslationMessages(source, direction);
-  const { rawText } = await requestPromptLlmWithAccounts(
-    tavernHelper,
-    settings,
-    {},
-    async account => buildGenerateRawMessagesRequest(messages, buildCustomApi(account)),
-  );
-  return sanitizeTranslation(rawText);
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, TRANSLATION_TIMEOUT_MS);
+
+  const name = provider === 'deepl' ? 'DeepL' : 'Google';
+  const lang = direction === 'zh-en' ? 'en' : 'zh-CN';
+  const translationSettings = extension_settings.translate as { deepl_endpoint?: string } | undefined;
+  const endpoint = translationSettings?.deepl_endpoint === 'pro' ? 'pro' : 'free';
+
+  try {
+    const chunks = provider === 'google' ? splitGoogleText(source) : [source];
+    const translations: string[] = [];
+    for (const chunk of chunks) {
+      controller.signal.throwIfAborted();
+      const response = await fetch('/api/translate/' + provider, {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({ text: chunk, lang, ...(provider === 'deepl' ? { endpoint } : {}) }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        if (provider === 'deepl' && response.status === 400) {
+          throw new Error('请先在酒馆「扩展 → 聊天翻译」中配置 DeepL API 密钥');
+        }
+        const hint = provider === 'deepl' ? '，请检查 API 密钥、额度及 Free / Pro 设置' : '，请稍后重试';
+        throw new Error(name + ' 翻译请求失败（HTTP ' + response.status + '）' + hint);
+      }
+      const translated = await response.text();
+      if (!translated.trim()) throw new Error(name + ' 未返回译文，请重试');
+      translations.push(translated);
+    }
+    controller.signal.throwIfAborted();
+    return translations.join('');
+  } catch (caught) {
+    if (timedOut) throw new Error(name + ' 翻译超时，请重试');
+    if (controller.signal.aborted) throw caught;
+    if (caught instanceof TypeError) throw new Error('无法连接 ' + name + ' 翻译服务，请检查网络后重试');
+    throw caught;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+  }
 }

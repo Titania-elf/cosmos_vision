@@ -1,11 +1,13 @@
-import { flushPromises, mount } from '@vue/test-utils';
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import PrimeVue from 'primevue/config';
+import Button from 'primevue/button';
 import Select from 'primevue/select';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import { createImagePromptPreset } from '@/constants/image-prompt';
 import TextInputDialog from '@/panel/components/TextInputDialog.vue';
+import TranslationPanel from '@/panel/components/TranslationPanel.vue';
 import { useSettingsStore } from '@/store/settings';
 
 vi.mock('@/services/translation/text-translation', () => ({
@@ -13,6 +15,8 @@ vi.mock('@/services/translation/text-translation', () => ({
 }));
 
 import { translateText } from '@/services/translation/text-translation';
+
+enableAutoUnmount(afterEach);
 
 /**
  * 挂载文本输入弹窗组件
@@ -176,9 +180,7 @@ describe('TextInputDialog 弹窗预设切换与整体文本联动', () => {
 
   it('LoRA 预设组：loraPresetId 命中有效预设时选项列表不含「原图 LoRA」，为空串时包含「原图 LoRA」', async () => {
     const { settings } = useSettingsStore();
-    settings.comfyui.loraPresets.presets = [
-      { id: 'L1', name: 'LoRA Group 1' } as any,
-    ];
+    settings.comfyui.loraPresets.presets = [{ id: 'L1', name: 'LoRA Group 1' } as any];
 
     const wrapper = mountDialog({
       enableLoraSelector: true,
@@ -206,39 +208,140 @@ describe('TextInputDialog 弹窗预设切换与整体文本联动', () => {
   });
 });
 
-describe('TextInputDialog 中英翻译', () => {
+describe('TextInputDialog 手动翻译', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
-    vi.mocked(translateText).mockClear();
+    vi.mocked(translateText).mockReset();
+    vi.mocked(translateText).mockImplementation(async text => 'translated:' + text);
   });
 
-  it('单字段输入弹窗展示翻译按钮，提示词编辑弹窗不展示', async () => {
-    const single = mountDialog({ enablePresetSelector: false, value: '追加要求' });
-    await nextTick();
-
-    expect(document.body.textContent).toContain('中→英');
-    expect(document.body.textContent).toContain('英→中');
-    single.unmount();
-
-    const pair = mountDialog();
-    await nextTick();
-
-    expect(document.body.textContent).not.toContain('中→英');
-    pair.unmount();
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it('点击中→英后将整体内容替换为译文', async () => {
-    const wrapper = mountDialog({ enablePresetSelector: false, value: '一个女孩，微笑' });
+  it('打开与修改输入都不自动翻译，点击后在输入框下方显示译文', async () => {
+    vi.useFakeTimers();
+    const wrapper = mountDialog({ secondaryValue: '' });
     await nextTick();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(translateText).not.toHaveBeenCalled();
 
-    const button = Array.from(document.querySelectorAll('button')).find(el =>
-      el.textContent?.includes('中→英'),
-    );
-    expect(button).toBeTruthy();
-    button!.click();
+    await wrapper.setProps({ value: 'a smiling girl' });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(translateText).not.toHaveBeenCalled();
+    vi.useRealTimers();
+
+    const panel = wrapper.findAllComponents(TranslationPanel)[0];
+    await panel.findComponent(Button).trigger('click');
     await flushPromises();
 
-    expect(vi.mocked(translateText)).toHaveBeenCalledWith('一个女孩，微笑', 'zh-en', expect.anything());
-    expect(wrapper.emitted('update:value')?.at(-1)).toEqual(['translated:一个女孩，微笑']);
+    expect(translateText).toHaveBeenCalledWith('a smiling girl', 'en-zh', 'google', expect.any(AbortSignal));
+    expect(panel.text()).toContain('译文 · 中文');
+    expect(panel.text()).toContain('translated:a smiling girl');
+    const textarea = document.querySelector('textarea')!;
+    expect(textarea.compareDocumentPosition(panel.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(textarea.value).toBe('a smiling girl');
+    expect(wrapper.emitted('update:value')).toBeUndefined();
+  });
+
+  it('中文输入点击后显示英文译文，修改后等待下一次点击', async () => {
+    const wrapper = mountDialog({
+      enablePresetSelector: false,
+      value: '一个女孩',
+      secondaryLabel: '',
+      secondaryValue: '',
+    });
+    await nextTick();
+    const panel = wrapper.findComponent(TranslationPanel);
+    await panel.findComponent(Button).trigger('click');
+    await flushPromises();
+    expect(panel.text()).toContain('译文 · 英文');
+    expect(panel.text()).toContain('translated:一个女孩');
+
+    await wrapper.setProps({ value: '一个女孩，微笑' });
+    expect(panel.text()).not.toContain('translated:');
+    expect(translateText).toHaveBeenCalledTimes(1);
+    await panel.findComponent(Button).trigger('click');
+    await flushPromises();
+    expect(translateText).toHaveBeenLastCalledWith('一个女孩，微笑', 'zh-en', 'google', expect.any(AbortSignal));
+    expect(panel.text()).toContain('translated:一个女孩，微笑');
+  });
+
+  it('正负面分别手动翻译，确认提交仍使用原文', async () => {
+    const wrapper = mountDialog({ value: '一个女孩，微笑' });
+    await nextTick();
+    const panels = wrapper.findAllComponents(TranslationPanel);
+    await panels[0].findComponent(Button).trigger('click');
+    await flushPromises();
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(panels[1].text()).not.toContain('translated:');
+    await panels[1].findComponent(Button).trigger('click');
+    await flushPromises();
+    expect(panels[1].text()).toContain('translated:pristine neg, no bad stuff');
+    expect(wrapper.emitted('update:value')).toBeUndefined();
+    expect(wrapper.emitted('update:secondaryValue')).toBeUndefined();
+
+    const submit = wrapper.findAllComponents(Button).find(button => button.props('label') === '确定')!;
+    await submit.trigger('click');
+    expect(wrapper.emitted('submit')?.at(-1)).toEqual([
+      expect.objectContaining({
+        value: '一个女孩，微笑',
+        secondaryValue: 'pristine neg, no bad stuff',
+      }),
+    ]);
+  });
+
+  it('切换到 DeepL 后仅在点击时请求，并记住服务选择', async () => {
+    const wrapper = mountDialog();
+    await nextTick();
+    const panels = wrapper.findAllComponents(TranslationPanel);
+    panels[0].findComponent(Select).vm.$emit('update:modelValue', 'deepl');
+    await nextTick();
+    await flushPromises();
+    expect(translateText).not.toHaveBeenCalled();
+    expect(panels[1].findComponent(Select).props('modelValue')).toBe('deepl');
+    expect(panels[0].text()).toContain('DeepL 密钥');
+    await panels[0].findComponent(Button).trigger('click');
+    await flushPromises();
+    expect(translateText).toHaveBeenLastCalledWith(
+      'template one, pristine pos',
+      'en-zh',
+      'deepl',
+      expect.any(AbortSignal),
+    );
+    expect(localStorage.getItem('cosmos-vision:translation-provider')).toBe('deepl');
+    wrapper.unmount();
+
+    const reopened = mountDialog();
+    await nextTick();
+    expect(reopened.findComponent(TranslationPanel).findComponent(Select).props('modelValue')).toBe('deepl');
+    expect(translateText).toHaveBeenCalledTimes(1);
+  });
+
+  it('翻译失败展示原因并支持重试，译文按纯文本显示', async () => {
+    vi.mocked(translateText).mockRejectedValueOnce(new Error('服务不可用'));
+    const wrapper = mountDialog();
+    await nextTick();
+    const panel = wrapper.findComponent(TranslationPanel);
+    await panel.findComponent(Button).trigger('click');
+    await flushPromises();
+    expect(panel.text()).toContain('翻译失败：服务不可用');
+    expect((panel.findComponent(Button).element as HTMLButtonElement).disabled).toBe(false);
+
+    vi.mocked(translateText).mockResolvedValueOnce('<img src=x onerror=alert(1)>');
+    await panel.findComponent(Button).trigger('click');
+    await flushPromises();
+    expect(panel.text()).toContain('<img src=x onerror=alert(1)>');
+    expect(panel.find('img').exists()).toBe(false);
+    expect(wrapper.emitted('update:value')).toBeUndefined();
+  });
+
+  it('空输入禁用翻译按钮，隐藏的负面字段没有翻译入口', async () => {
+    const wrapper = mountDialog({ value: '', secondaryLabel: '' });
+    await nextTick();
+    const panels = wrapper.findAllComponents(TranslationPanel);
+    expect(panels).toHaveLength(1);
+    expect((panels[0].findComponent(Button).element as HTMLButtonElement).disabled).toBe(true);
+    expect(translateText).not.toHaveBeenCalled();
   });
 });

@@ -37,34 +37,15 @@
             class="text-(length:--cv-font-size-xs) leading-[1.4] font-semibold text-(--cv-on-surface)"
             >{{ primaryLabel }}</label
           >
-          <div class="flex min-w-0 items-center gap-(--cv-space-md)">
-            <div v-if="enableTranslation" class="flex items-center gap-(--cv-space-xs)">
-              <span class="text-(length:--cv-font-size-xs) leading-[1.4] text-(--cv-on-surface-variant)">翻译</span>
-              <CvMiniButton
-                label="中→英"
-                :loading="translating === 'zh-en'"
-                :disabled="translating !== null || !value.trim()"
-                title="将输入内容翻译为英文；有选区时只翻译选中内容"
-                @click="translatePrimary('zh-en')"
-              />
-              <CvMiniButton
-                label="英→中"
-                :loading="translating === 'en-zh'"
-                :disabled="translating !== null || !value.trim()"
-                title="将输入内容翻译为中文；有选区时只翻译选中内容"
-                @click="translatePrimary('en-zh')"
-              />
-            </div>
-            <div v-if="enablePresetSelector" class="w-48 max-w-[50%]">
-              <Select
-                v-model="positivePresetId"
-                :options="positivePresetOptions"
-                option-label="name"
-                option-value="id"
-                size="small"
-                fluid
-              />
-            </div>
+          <div v-if="enablePresetSelector" class="w-48 max-w-[50%]">
+            <Select
+              v-model="positivePresetId"
+              :options="positivePresetOptions"
+              option-label="name"
+              option-value="id"
+              size="small"
+              fluid
+            />
           </div>
         </div>
         <CvExpandableTextarea
@@ -76,6 +57,7 @@
           @keyup="rememberSelection"
           @select="rememberSelection"
         />
+        <TranslationPanel v-model:provider="translationProvider" :source="value" :visible="visible" />
       </div>
       <div v-if="quickPhrases !== undefined" class="flex min-h-0 flex-col gap-(--cv-space-sm)">
         <div class="flex items-center justify-between">
@@ -133,6 +115,7 @@
           class="custom-scrollbar max-h-[min(24dvh,12rem)] min-h-[5.5rem] w-full resize-none overflow-y-auto overscroll-contain"
           :rows="secondaryRows"
         />
+        <TranslationPanel v-model:provider="translationProvider" :source="secondaryValue" :visible="visible" />
       </div>
       <div v-if="enableCharacters" class="flex flex-col gap-(--cv-space-xl)">
         <div class="text-(length:--cv-font-size-xs) leading-[1.4] font-semibold text-(--cv-on-surface)">
@@ -260,7 +243,7 @@
 </template>
 
 <script setup lang="ts">
-import { useMediaQuery } from '@vueuse/core';
+import { useLocalStorage, useMediaQuery } from '@vueuse/core';
 import { computed, nextTick, ref, watch } from 'vue';
 
 import { buildEditableDisplayText } from '@/composables/inlineEditablePromptSnapshot';
@@ -269,6 +252,7 @@ import CollapsiblePanelItem from '@/panel/components/CollapsiblePanelItem.vue';
 import CvAddEntryButton from '@/panel/components/CvAddEntryButton.vue';
 import CvExpandableTextarea from '@/panel/components/CvExpandableTextarea.vue';
 import CvMiniButton from '@/panel/components/CvMiniButton.vue';
+import TranslationPanel from '@/panel/components/TranslationPanel.vue';
 import {
   focusTextareaAt,
   getTextareaElement,
@@ -276,8 +260,8 @@ import {
   replaceTextRange,
   type TextRange,
 } from '@/panel/components/textarea-token-insert';
-import { translateText, type TranslationDirection } from '@/services/translation/text-translation';
 import { useSettingsStore } from '@/store/settings';
+import type { TranslationProvider } from '@/services/translation/text-translation';
 
 /** 编辑弹窗中的角色提示词草稿 */
 export interface TextInputCharacterDraft {
@@ -346,7 +330,10 @@ const emit = defineEmits<{
   updateQuickPhrases: [phrases: string[]];
 }>();
 
-const { settings, savedSettings } = useSettingsStore();
+const { settings } = useSettingsStore();
+const translationProvider = useLocalStorage<TranslationProvider>('cosmos-vision:translation-provider', 'google');
+if (translationProvider.value !== 'google' && translationProvider.value !== 'deepl')
+  translationProvider.value = 'google';
 
 /** 预设下拉选项接口 */
 interface PresetOption {
@@ -413,17 +400,9 @@ const isExpanded = ref(false);
 const hasOverflow = ref(false);
 const isManageDialogOpen = ref(false);
 const draftPhrases = ref<string[]>([]);
-/** 正在进行的翻译方向；null 表示空闲 */
-const translating = ref<TranslationDirection | null>(null);
 
 const dialogClass = computed(() => ['cv-confirm-dialog', 'cv-text-input-dialog', { [DARK_CLASS]: props.darkMode }]);
 const hasSecondaryField = computed(() => Boolean(props.secondaryLabel));
-/**
- * 是否展示中英翻译
- * 仅单字段输入（临时追加要求）展示；提示词编辑弹窗内为「预设模板 + 核心词」，
- * 整段翻译会破坏预设模板的剥离语义
- */
-const enableTranslation = computed(() => !props.enablePresetSelector);
 const dialogStyle = computed(() =>
   isMobile.value
     ? { width: 'calc(100dvw - 2rem)', maxWidth: '32rem', maxHeight: 'calc(100dvh - 2rem)' }
@@ -503,36 +482,6 @@ function insertQuickPhrase(phrase: string): void {
   focusTextareaAt(getTextInputElement, nextPosition, nextRange => {
     selectionRange.value = nextRange;
   });
-}
-
-/**
- * 翻译主输入框内容
- * 有选区时只替换选区，未选中时替换全部内容
- * @param direction 翻译方向
- */
-async function translatePrimary(direction: TranslationDirection): Promise<void> {
-  if (translating.value) return;
-  const range = readTextareaInsertRange(getTextInputElement(), selectionRange.value, value.value);
-  const hasSelection = range.start !== range.end;
-  const source = hasSelection ? value.value.slice(range.start, range.end) : value.value;
-  if (!source.trim()) return;
-  translating.value = direction;
-  try {
-    const translated = await translateText(source, direction, savedSettings.promptLlm);
-    if (!translated) return;
-    if (!hasSelection) {
-      value.value = translated;
-      return;
-    }
-    value.value = replaceTextRange(value.value, range, translated);
-    focusTextareaAt(getTextInputElement, range.start + translated.length, nextRange => {
-      selectionRange.value = nextRange;
-    });
-  } catch (error) {
-    toastr.error(`翻译失败：${error instanceof Error ? error.message : '未知错误'}`);
-  } finally {
-    translating.value = null;
-  }
 }
 
 /**
