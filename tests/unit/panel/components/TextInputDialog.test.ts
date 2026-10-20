@@ -237,7 +237,7 @@ describe('TextInputDialog 手动翻译', () => {
 
     expect(translateText).toHaveBeenCalledWith('a smiling girl', 'en-zh', 'google', expect.any(AbortSignal));
     expect(panel.text()).toContain('译文 · 中文');
-    expect(panel.text()).toContain('translated:a smiling girl');
+    expect(panel.get('textarea').element.value).toBe('translated:a smiling girl');
     const textarea = document.querySelector('textarea')!;
     expect(textarea.compareDocumentPosition(panel.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(textarea.value).toBe('a smiling girl');
@@ -256,15 +256,15 @@ describe('TextInputDialog 手动翻译', () => {
     await panel.findComponent(Button).trigger('click');
     await flushPromises();
     expect(panel.text()).toContain('译文 · 英文');
-    expect(panel.text()).toContain('translated:一个女孩');
+    expect(panel.get('textarea').element.value).toBe('translated:一个女孩');
 
     await wrapper.setProps({ value: '一个女孩，微笑' });
-    expect(panel.text()).not.toContain('translated:');
+    expect(panel.find('textarea').exists()).toBe(false);
     expect(translateText).toHaveBeenCalledTimes(1);
     await panel.findComponent(Button).trigger('click');
     await flushPromises();
     expect(translateText).toHaveBeenLastCalledWith('一个女孩，微笑', 'zh-en', 'google', expect.any(AbortSignal));
-    expect(panel.text()).toContain('translated:一个女孩，微笑');
+    expect(panel.get('textarea').element.value).toBe('translated:一个女孩，微笑');
   });
 
   it('正负面分别手动翻译，确认提交仍使用原文', async () => {
@@ -274,10 +274,10 @@ describe('TextInputDialog 手动翻译', () => {
     await panels[0].findComponent(Button).trigger('click');
     await flushPromises();
     expect(translateText).toHaveBeenCalledTimes(1);
-    expect(panels[1].text()).not.toContain('translated:');
+    expect(panels[1].find('textarea').exists()).toBe(false);
     await panels[1].findComponent(Button).trigger('click');
     await flushPromises();
-    expect(panels[1].text()).toContain('translated:pristine neg, no bad stuff');
+    expect(panels[1].get('textarea').element.value).toBe('translated:pristine neg, no bad stuff');
     expect(wrapper.emitted('update:value')).toBeUndefined();
     expect(wrapper.emitted('update:secondaryValue')).toBeUndefined();
 
@@ -331,7 +331,7 @@ describe('TextInputDialog 手动翻译', () => {
     vi.mocked(translateText).mockResolvedValueOnce('<img src=x onerror=alert(1)>');
     await panel.findComponent(Button).trigger('click');
     await flushPromises();
-    expect(panel.text()).toContain('<img src=x onerror=alert(1)>');
+    expect(panel.get('textarea').element.value).toBe('<img src=x onerror=alert(1)>');
     expect(panel.find('img').exists()).toBe(false);
     expect(wrapper.emitted('update:value')).toBeUndefined();
   });
@@ -343,5 +343,118 @@ describe('TextInputDialog 手动翻译', () => {
     expect(panels).toHaveLength(1);
     expect((panels[0].findComponent(Button).element as HTMLButtonElement).disabled).toBe(true);
     expect(translateText).not.toHaveBeenCalled();
+  });
+});
+
+describe('TextInputDialog 编辑译文后写入英文提示词', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.mocked(translateText).mockReset();
+    vi.mocked(translateText).mockResolvedValue('一个女孩');
+  });
+
+  it.each([
+    [0, 'update:value', 'update:secondaryValue', 'value', 'secondaryValue'],
+    [1, 'update:secondaryValue', 'update:value', 'secondaryValue', 'value'],
+  ] as const)(
+    '第 %i 个译文编辑后只回填对应字段，确认提交使用英文结果',
+    async (index, updateEvent, untouchedEvent, field, untouchedField) => {
+      const wrapper = mountDialog();
+      await nextTick();
+      const originalOther = wrapper.props(untouchedField);
+      const panel = wrapper.findAllComponents(TranslationPanel)[index];
+      await panel.findComponent(Button).trigger('click');
+      await flushPromises();
+      const editor = panel.get('textarea');
+      await editor.setValue('一个女孩，穿着红色连衣裙');
+      expect(wrapper.emitted(updateEvent)).toBeUndefined();
+      expect(wrapper.emitted(untouchedEvent)).toBeUndefined();
+      expect(translateText).toHaveBeenCalledTimes(1);
+
+      vi.mocked(translateText).mockResolvedValueOnce('a girl, wearing a red dress');
+      await panel.get('[aria-label="翻译为英文并写入上方"]').trigger('click');
+      await flushPromises();
+      expect(translateText).toHaveBeenLastCalledWith(
+        '一个女孩，穿着红色连衣裙',
+        'zh-en',
+        'google',
+        expect.any(AbortSignal),
+      );
+      expect(wrapper.emitted(updateEvent)?.at(-1)).toEqual(['a girl, wearing a red dress']);
+      expect(wrapper.emitted(untouchedEvent)).toBeUndefined();
+      expect(panel.get('textarea').element.value).toBe('一个女孩，穿着红色连衣裙');
+      expect(panel.text()).toContain('已写入上方提示词');
+      expect(panel.text()).toContain('译文 · 中文');
+
+      const promptInput = panel.element.previousElementSibling!.querySelector('textarea')!;
+      expect(promptInput.value).toBe('a girl, wearing a red dress');
+      const submit = wrapper.findAllComponents(Button).find(button => button.props('label') === '确定')!;
+      await submit.trigger('click');
+      expect(wrapper.emitted('submit')?.at(-1)).toEqual([
+        expect.objectContaining({
+          [field]: 'a girl, wearing a red dress',
+          [untouchedField]: originalOther,
+        }),
+      ]);
+    },
+  );
+
+  it('草稿清空后编辑框仍存在且回填按钮禁用', async () => {
+    const wrapper = mountDialog();
+    await nextTick();
+    const panel = wrapper.findComponent(TranslationPanel);
+    await panel.findComponent(Button).trigger('click');
+    await flushPromises();
+    await panel.get('textarea').setValue('');
+    expect(panel.find('textarea').exists()).toBe(true);
+    expect((panel.get('[aria-label="翻译为英文并写入上方"]').element as HTMLButtonElement).disabled).toBe(true);
+    await panel.get('textarea').setValue('一个女孩，微笑');
+    expect((panel.get('[aria-label="翻译为英文并写入上方"]').element as HTMLButtonElement).disabled).toBe(false);
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(wrapper.emitted('update:value')).toBeUndefined();
+  });
+
+  it('回填失败后草稿仍可见可编辑，再次点击可重试', async () => {
+    const wrapper = mountDialog();
+    await nextTick();
+    const panel = wrapper.findComponent(TranslationPanel);
+    await panel.findComponent(Button).trigger('click');
+    await flushPromises();
+    await panel.get('textarea').setValue('一个女孩，微笑');
+    vi.mocked(translateText).mockRejectedValueOnce(new Error('翻译超时'));
+    await panel.get('[aria-label="翻译为英文并写入上方"]').trigger('click');
+    await flushPromises();
+    expect(panel.text()).toContain('翻译失败：翻译超时');
+    expect(panel.get('textarea').element.value).toBe('一个女孩，微笑');
+    expect(wrapper.emitted('update:value')).toBeUndefined();
+
+    await panel.get('textarea').setValue('一个女孩，大笑');
+    vi.mocked(translateText).mockResolvedValueOnce('a girl, laughing');
+    await panel.get('[aria-label="翻译为英文并写入上方"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.emitted('update:value')?.at(-1)).toEqual(['a girl, laughing']);
+  });
+
+  it('回填等待期间修改上方提示词，旧请求不会覆盖新内容', async () => {
+    const wrapper = mountDialog();
+    await nextTick();
+    const panel = wrapper.findComponent(TranslationPanel);
+    await panel.findComponent(Button).trigger('click');
+    await flushPromises();
+    let resolve!: (text: string) => void;
+    vi.mocked(translateText).mockImplementationOnce(
+      () =>
+        new Promise(done => {
+          resolve = done;
+        }),
+    );
+    await panel.get('[aria-label="翻译为英文并写入上方"]').trigger('click');
+    const signal = vi.mocked(translateText).mock.calls.at(-1)![3]!;
+    await wrapper.setProps({ value: 'a boy' });
+    expect(signal.aborted).toBe(true);
+    resolve('a girl, smiling');
+    await flushPromises();
+    expect(wrapper.emitted('update:value')).toBeUndefined();
+    expect(document.querySelector('textarea')!.value).toBe('a boy');
   });
 });

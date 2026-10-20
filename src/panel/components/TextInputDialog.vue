@@ -57,7 +57,12 @@
           @keyup="rememberSelection"
           @select="rememberSelection"
         />
-        <TranslationPanel v-model:provider="translationProvider" :source="value" :visible="visible" />
+        <TranslationPanel
+          v-model:provider="translationProvider"
+          :source="value"
+          :visible="visible"
+          @apply="value = $event"
+        />
       </div>
       <div v-if="quickPhrases !== undefined" class="flex min-h-0 flex-col gap-(--cv-space-sm)">
         <div class="flex items-center justify-between">
@@ -115,7 +120,12 @@
           class="custom-scrollbar max-h-[min(24dvh,12rem)] min-h-[5.5rem] w-full resize-none overflow-y-auto overscroll-contain"
           :rows="secondaryRows"
         />
-        <TranslationPanel v-model:provider="translationProvider" :source="secondaryValue" :visible="visible" />
+        <TranslationPanel
+          v-model:provider="translationProvider"
+          :source="secondaryValue"
+          :visible="visible"
+          @apply="secondaryValue = $event"
+        />
       </div>
       <div v-if="enableCharacters" class="flex flex-col gap-(--cv-space-xl)">
         <div class="text-(length:--cv-font-size-xs) leading-[1.4] font-semibold text-(--cv-on-surface)">

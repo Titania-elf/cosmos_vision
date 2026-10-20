@@ -13,8 +13,11 @@ function createTranslation(initial = 'a girl', visible = ref(true)) {
   const provider = ref<TranslationProvider>('google');
   const scope = effectScope();
   scopes.push(scope);
-  const state = scope.run(() => useManualTranslation(source, { visible, provider }))!;
-  return { source, provider, visible, state, scope };
+  const onApply = vi.fn((translatedText: string) => {
+    source.value = translatedText;
+  });
+  const state = scope.run(() => useManualTranslation(source, { visible, provider, onApply }))!;
+  return { source, provider, visible, state, scope, onApply };
 }
 
 beforeEach(() => {
@@ -183,5 +186,166 @@ describe('useManualTranslation 手动翻译', () => {
     await state.translate();
     expect(state.text.value).toBe('');
     expect(translateText).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useManualTranslation 编辑译文并回填', () => {
+  it('编辑不会触发请求，点击后才翻译为英文并回填，保留草稿继续编辑', async () => {
+    const { source, state, onApply } = createTranslation();
+    await state.translate();
+    state.text.value = '女孩，红色连衣裙';
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(onApply).not.toHaveBeenCalled();
+    expect(source.value).toBe('a girl');
+
+    vi.mocked(translateText).mockResolvedValueOnce('a girl, red dress');
+    await state.translateAndApply();
+    expect(translateText).toHaveBeenLastCalledWith('女孩，红色连衣裙', 'zh-en', 'google', expect.any(AbortSignal));
+    expect(onApply).toHaveBeenCalledExactlyOnceWith('a girl, red dress');
+    expect(source.value).toBe('a girl, red dress');
+    expect(state.text.value).toBe('女孩，红色连衣裙');
+    expect(state.translationTargetLabel.value).toBe('中文');
+    expect(state.hasTranslation.value).toBe(true);
+    expect(state.applied.value).toBe(true);
+
+    state.text.value = '女孩，蓝色连衣裙';
+    expect(state.applied.value).toBe(false);
+    expect(source.value).toBe('a girl, red dress');
+  });
+
+  it('草稿是英文时回填仍固定译为英文，并沿用所选服务', async () => {
+    const { provider, state, onApply } = createTranslation('一个女孩');
+    provider.value = 'deepl';
+    await state.translate();
+    state.text.value = 'a girl, blue eyes';
+    vi.mocked(translateText).mockResolvedValueOnce('a girl, blue eyes');
+    await state.translateAndApply();
+    expect(translateText).toHaveBeenLastCalledWith('a girl, blue eyes', 'zh-en', 'deepl', expect.any(AbortSignal));
+    expect(onApply).toHaveBeenCalledExactlyOnceWith('a girl, blue eyes');
+  });
+
+  it('未获取译文时不可回填', async () => {
+    const { state, onApply } = createTranslation();
+    expect(state.canApply.value).toBe(false);
+    await state.translateAndApply();
+    expect(translateText).not.toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('清空译文不会关闭编辑框，空白草稿不可回填', async () => {
+    const { state, onApply } = createTranslation();
+    await state.translate();
+    state.text.value = ' \n ';
+    expect(state.hasTranslation.value).toBe(true);
+    expect(state.canApply.value).toBe(false);
+    await state.translateAndApply();
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('回填翻译失败保留原文和草稿，并允许重试', async () => {
+    const { source, state, onApply } = createTranslation();
+    await state.translate();
+    state.text.value = '女孩，微笑';
+    vi.mocked(translateText).mockRejectedValueOnce(new Error('网络错误'));
+    await state.translateAndApply();
+    expect(source.value).toBe('a girl');
+    expect(state.text.value).toBe('女孩，微笑');
+    expect(state.error.value).toBe('网络错误');
+    expect(state.canApply.value).toBe(true);
+    expect(onApply).not.toHaveBeenCalled();
+
+    vi.mocked(translateText).mockResolvedValueOnce('a girl, smile');
+    await state.translateAndApply();
+    expect(source.value).toBe('a girl, smile');
+    expect(state.error.value).toBe('');
+  });
+
+  it('空翻译结果不能清空上方原文', async () => {
+    const { source, state, onApply } = createTranslation();
+    await state.translate();
+    state.text.value = '女孩';
+    vi.mocked(translateText).mockResolvedValueOnce(' \n ');
+    await state.translateAndApply();
+    expect(source.value).toBe('a girl');
+    expect(state.text.value).toBe('女孩');
+    expect(state.error.value).toContain('未返回英文译文');
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('回填进行中禁止重复请求和普通翻译', async () => {
+    const { state, onApply } = createTranslation();
+    await state.translate();
+    let resolve!: (text: string) => void;
+    vi.mocked(translateText).mockImplementationOnce(
+      () =>
+        new Promise(done => {
+          resolve = done;
+        }),
+    );
+    const request = state.translateAndApply();
+    expect(state.applying.value).toBe(true);
+    expect(state.canTranslate.value).toBe(false);
+    expect(state.canApply.value).toBe(false);
+    await state.translateAndApply();
+    await state.translate();
+    expect(translateText).toHaveBeenCalledTimes(2);
+    resolve('a girl, smile');
+    await request;
+    expect(onApply).toHaveBeenCalledTimes(1);
+    expect(state.applying.value).toBe(false);
+  });
+
+  it.each(['draft', 'source', 'provider', 'hide', 'unmount'] as const)(
+    '%s 变化取消回填请求，晚到的结果不写入原文',
+    async change => {
+      const { source, provider, visible, state, scope, onApply } = createTranslation();
+      await state.translate();
+      state.text.value = '女孩，微笑';
+      let resolve!: (text: string) => void;
+      vi.mocked(translateText).mockImplementationOnce(
+        () =>
+          new Promise(done => {
+            resolve = done;
+          }),
+      );
+      const request = state.translateAndApply();
+      const signal = vi.mocked(translateText).mock.calls.at(-1)![3]!;
+      if (change === 'draft') state.text.value = '女孩，大笑';
+      if (change === 'source') source.value = 'a boy';
+      if (change === 'provider') provider.value = 'deepl';
+      if (change === 'hide') visible.value = false;
+      if (change === 'unmount') scope.stop();
+      expect(signal.aborted).toBe(true);
+      resolve('a girl, smile');
+      await request;
+      expect(onApply).not.toHaveBeenCalled();
+      expect(source.value).toBe(change === 'source' ? 'a boy' : 'a girl');
+      expect(state.applying.value).toBe(false);
+    },
+  );
+
+  it('修改草稿重新回填后，旧请求的失败不会覆盖成功状态', async () => {
+    const { source, state, onApply } = createTranslation();
+    await state.translate();
+    state.text.value = '女孩，微笑';
+    let reject!: (reason: Error) => void;
+    vi.mocked(translateText).mockImplementationOnce(
+      () =>
+        new Promise((_done, fail) => {
+          reject = fail;
+        }),
+    );
+    const oldRequest = state.translateAndApply();
+    state.text.value = '女孩，大笑';
+    vi.mocked(translateText).mockResolvedValueOnce('a girl, laughing');
+    await state.translateAndApply();
+    reject(new Error('旧请求错误'));
+    await oldRequest;
+    expect(onApply).toHaveBeenCalledExactlyOnceWith('a girl, laughing');
+    expect(source.value).toBe('a girl, laughing');
+    expect(state.text.value).toBe('女孩，大笑');
+    expect(state.error.value).toBe('');
+    expect(state.applied.value).toBe(true);
   });
 });

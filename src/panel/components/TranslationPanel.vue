@@ -25,7 +25,7 @@
     <div v-if="provider === 'deepl'" class="text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">
       使用酒馆「扩展 → 聊天翻译」中配置的 DeepL 密钥和 Free / Pro 设置。
     </div>
-    <div aria-live="polite" :aria-busy="pending">
+    <div aria-live="polite" :aria-busy="pending || applying">
       <div
         v-if="error"
         role="alert"
@@ -33,14 +33,30 @@
       >
         翻译失败：{{ error }}
       </div>
-      <template v-else-if="text">
+      <template v-if="hasTranslation">
         <div class="mb-(--cv-space-xs) text-(length:--cv-font-size-xs) font-semibold text-(--cv-on-surface-variant)">
-          译文 · {{ targetLabel }}
+          译文 · {{ translationTargetLabel }}（可编辑）
         </div>
-        <div
-          class="custom-scrollbar max-h-[min(22dvh,11rem)] overflow-y-auto overscroll-contain text-(length:--cv-font-size-sm) leading-[1.5] break-words whitespace-pre-wrap text-(--cv-on-surface)"
-        >
-          {{ text }}
+        <CvExpandableTextarea
+          v-model="text"
+          :rows="3"
+          aria-label="可编辑译文"
+          placeholder="修改译文后，可翻译为英文并写入上方提示词"
+          class="custom-scrollbar max-h-[min(22dvh,11rem)] min-h-[5.5rem] w-full resize-none overflow-y-auto overscroll-contain"
+        />
+        <div class="mt-(--cv-space-sm) flex flex-wrap items-center justify-end gap-(--cv-space-sm)">
+          <span v-if="applied" class="text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">
+            已写入上方提示词
+          </span>
+          <Button
+            :label="applying ? '正在翻译为英文…' : '翻译为英文并写入上方'"
+            aria-label="翻译为英文并写入上方"
+            icon="fa-solid fa-arrow-up"
+            size="small"
+            :loading="applying"
+            :disabled="!canApply"
+            @click="translateAndApply"
+          />
         </div>
       </template>
     </div>
@@ -50,16 +66,32 @@
 <script setup lang="ts">
 import { toRef } from 'vue';
 import { useManualTranslation } from '@/composables/useManualTranslation';
+import CvExpandableTextarea from '@/panel/components/CvExpandableTextarea.vue';
 import type { TranslationProvider } from '@/services/translation/text-translation';
 
 const props = defineProps<{ source: string; visible: boolean }>();
+const emit = defineEmits<{ apply: [translatedText: string] }>();
 const provider = defineModel<TranslationProvider>('provider', { required: true });
 const providerOptions = [
   { label: 'Google', value: 'google' },
   { label: 'DeepL', value: 'deepl' },
 ];
-const { text, targetLabel, pending, error, canTranslate, translate } = useManualTranslation(toRef(props, 'source'), {
+const {
+  text,
+  hasTranslation,
+  targetLabel,
+  translationTargetLabel,
+  pending,
+  applying,
+  applied,
+  error,
+  canTranslate,
+  canApply,
+  translate,
+  translateAndApply,
+} = useManualTranslation(toRef(props, 'source'), {
   visible: toRef(props, 'visible'),
   provider,
+  onApply: translatedText => emit('apply', translatedText),
 });
 </script>
