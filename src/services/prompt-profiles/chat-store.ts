@@ -1,18 +1,26 @@
 import { chat_metadata, saveChatDebounced } from '@sillytavern/script';
 
-import type { PromptPerson, PromptProfilesSettings } from '@/constants/prompt-llm';
+import type { PromptPerson, PromptPersonSourceReference, PromptProfilesSettings } from '@/constants/prompt-llm';
 import { uuidv4 } from '@sillytavern/scripts/utils';
 
 /** chat_metadata 中本插件人物档案的命名空间 key */
 const PROFILES_METADATA_KEY = 'cosmos_vision_profiles';
 
+/** 当前聊天人物档案持久化后通知 UI 刷新。 */
+export const CHAT_PROFILES_CHANGED = 'cosmos-vision:chat-profiles-changed';
+
 /**
  * 读取当前聊天的人物档案列表
- * 返回的是 chat_metadata 内的实时对象引用：修改后调用 persistChatProfiles 落盘
+ * 返回规范化后的独立副本：修改后调用 persistChatProfiles 落盘
  * 无档案或数据异常时返回空数组（静默降级）
  */
 export function readChatProfiles(): PromptPerson[] {
-  const raw = readRawProfilesMetadata();
+  return readProfilesFromMetadata(chat_metadata);
+}
+
+/** 从任意聊天 metadata 读取并规范化人物档案，不修改传入数据。 */
+export function readProfilesFromMetadata(metadata: unknown): PromptPerson[] {
+  const raw = readRawProfilesMetadata(metadata);
   if (!Array.isArray(raw)) return [];
   return raw.flatMap(normalizeChatProfile);
 }
@@ -23,6 +31,7 @@ export function readChatProfiles(): PromptPerson[] {
 export function persistChatProfiles(profiles: PromptPerson[]): void {
   (chat_metadata as Record<string, unknown>)[PROFILES_METADATA_KEY] = profiles;
   saveChatDebounced();
+  window.dispatchEvent(new Event(CHAT_PROFILES_CHANGED));
 }
 
 /**
@@ -57,9 +66,10 @@ export function importLegacyGlobalProfiles(settings: PromptProfilesSettings): Pr
 /**
  * 从 chat_metadata 读取原始档案数组
  */
-function readRawProfilesMetadata(): unknown {
+function readRawProfilesMetadata(metadata: unknown): unknown {
   try {
-    const value = (chat_metadata as Record<string, unknown>)[PROFILES_METADATA_KEY];
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+    const value = (metadata as Record<string, unknown>)[PROFILES_METADATA_KEY];
     return Array.isArray(value) ? value : null;
   } catch (error) {
     console.debug('[CosmosVision] 读取人物档案 metadata 失败:', error);
@@ -71,7 +81,7 @@ function readRawProfilesMetadata(): unknown {
  * 规范化单条人物档案（坏条目丢弃）
  */
 function normalizeChatProfile(value: unknown): PromptPerson[] {
-  if (!value || typeof value !== 'object') return [];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
   const record = value as Record<string, unknown>;
   const kind = record.kind === 'user' || record.kind === 'character' ? record.kind : null;
   if (!kind) return [];
@@ -100,7 +110,7 @@ function normalizeChatProfile(value: unknown): PromptPerson[] {
  * 规范化单条模板条目（坏条目丢弃）
  */
 function normalizeTemplateEntry(value: unknown): PromptPerson['templateEntries'] {
-  if (!value || typeof value !== 'object') return [];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
   const record = value as Record<string, unknown>;
   const title = typeof record.title === 'string' ? record.title.trim() : '';
   if (!title) return [];
@@ -110,16 +120,22 @@ function normalizeTemplateEntry(value: unknown): PromptPerson['templateEntries']
       title,
       enabled: record.enabled !== false,
       content: typeof record.content === 'string' ? record.content : '',
-      reference: isReference(record.reference) ? record.reference : undefined,
+      reference: normalizeReference(record.reference),
     },
   ];
 }
 
-/**
- * 判断引用对象结构合法
- */
-function isReference(value: unknown): value is PromptPerson['templateEntries'][number]['reference'] {
-  if (!value || typeof value !== 'object') return false;
+/** 仅复制引用中类型合法的已知字段，避免保留未知字段或共享嵌套对象。 */
+function normalizeReference(value: unknown): PromptPersonSourceReference | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
-  return ['worldbookName', 'characterName', 'personaId', 'personaName', 'entryUid'].some(key => key in record);
+  const reference: PromptPersonSourceReference = {};
+  for (const key of ['worldbookName', 'characterName', 'personaId', 'personaName'] as const) {
+    const field = record[key];
+    if (typeof field === 'string') reference[key] = field;
+  }
+  if (typeof record.entryUid === 'number' && Number.isFinite(record.entryUid)) {
+    reference.entryUid = record.entryUid;
+  }
+  return Object.keys(reference).length ? reference : undefined;
 }

@@ -1,9 +1,16 @@
 <template>
   <div class="cv-tab-content flex flex-col gap-0">
     <div class="mt-(--cv-space-5xl) flex flex-col gap-(--cv-space-4xl)">
-      <OutfitContinuityPanel />
-      <div data-cv-tutorial="prompt-profiles-overview">
+      <div data-cv-tutorial="prompt-profiles-overview" class="grid grid-cols-1 gap-(--cv-space-md) sm:grid-cols-2">
         <Button label="新建人物" icon="fa-solid fa-user-plus" outlined class="w-full" @click="createBlankPerson" />
+        <Button
+          label="从其他聊天同步"
+          icon="fa-solid fa-arrows-rotate"
+          outlined
+          class="w-full"
+          :disabled="!chatScope"
+          @click="isSyncDialogVisible = true"
+        />
       </div>
 
       <div v-if="filteredProfiles.length > 0" class="flex flex-col gap-(--cv-space-xl)">
@@ -127,11 +134,21 @@
         class="flex min-h-64 flex-col justify-center gap-(--cv-space-lg) rounded-(--cv-radius-sm) border-(length:--cv-border-width) border-solid border-(--cv-surface-variant) bg-(--cv-surface-container-low) p-(--cv-space-5xl) text-center text-(--cv-on-surface-variant)"
       >
         <i class="fa-solid fa-user-gear" />
-        <span>本聊天还没有{{ activeKind === 'user' ? '用户' : '角色' }}人物档案，点击上方按钮建立</span>
-        <span class="text-(length:--cv-font-size-xs)">人物档案跟随当前聊天存储，换聊天后需要重新建立</span>
+        <span>本聊天还没有{{ activeKind === 'user' ? '用户' : '角色' }}人物档案，可以新建或从其他聊天同步</span>
+        <span class="text-(length:--cv-font-size-xs)">人物档案跟随当前聊天独立存储，同步后各聊天的修改互不影响</span>
       </section>
+
+      <OutfitContinuityPanel />
     </div>
   </div>
+
+  <PromptProfilesSyncDialog
+    v-model:visible="isSyncDialogVisible"
+    :kind="activeKind"
+    :profiles="chatProfiles"
+    @sync="syncProfiles"
+    @refresh="refreshChatProfiles"
+  />
 
   <Dialog
     v-model:visible="isTagParseDialogVisible"
@@ -218,6 +235,9 @@ import CvMiniToggleSwitch from '@/panel/components/CvMiniToggleSwitch.vue';
 import StaticTagsDraftResult from '@/panel/components/StaticTagsDraftResult.vue';
 import WdTaggerSource from '@/panel/components/WdTaggerSource.vue';
 import PromptSourceEntryList from '@/panel/components/PromptSourceEntryList.vue';
+import PromptProfilesSyncDialog from '@/panel/components/PromptProfilesSyncDialog.vue';
+import { applyChatProfileSync, type ChatProfileSyncMode } from '@/services/prompt-profiles/chat-sync';
+import { getCurrentChatScope, isSameChatScope, type ChatScope } from '@/services/sillytavern/chats';
 import { event_types, eventSource } from '@sillytavern/script';
 import type { PromptPerson, PromptPersonInsertMode, PromptPersonKind } from '@/constants/novelai';
 import { useSettingsStore } from '@/store/settings';
@@ -269,6 +289,8 @@ const TAG_PARSE_MODE_OPTIONS: Array<{
 const { settings } = useSettingsStore();
 /** 本聊天的人物档案：运行时数据，编辑即时落盘（chat_metadata），不走设置草稿 */
 const chatProfiles = ref<PromptPerson[]>(readChatProfiles());
+const chatScope = ref<ChatScope | null>(getCurrentChatScope());
+const isSyncDialogVisible = ref(false);
 const activeKind = defineModel<PromptPersonKind>('kind', { default: 'character' });
 const activePersonId = ref('');
 const editingPersonId = ref<string | null>(null);
@@ -334,11 +356,39 @@ watch(
 );
 
 // 档案为运行时数据（chat_metadata）：任何编辑即时落盘，不走「应用更改」草稿流程
-watch(chatProfiles, () => persistChatProfiles(chatProfiles.value), { deep: true });
+watch(chatProfiles, () => persistChatProfiles(chatProfiles.value), { deep: true, flush: 'sync' });
+
+function refreshChatProfiles(): void {
+  chatProfiles.value = readChatProfiles();
+}
+
+/** 合并时重读当前档案，只写入本插件字段，其他聊天 metadata 保持不变。 */
+function syncProfiles(selected: PromptPerson[], mode: ChatProfileSyncMode, scope: ChatScope): void {
+  if (!isSameChatScope(scope, getCurrentChatScope())) {
+    toastr.warning('当前聊天已变化，未同步档案');
+    return;
+  }
+  const result = applyChatProfileSync(readChatProfiles(), selected, mode);
+  const added = result.items.filter(item => item.action === 'add').length;
+  const overwritten = result.items.filter(item => item.action === 'overwrite').length;
+  const skipped = result.items.length - added - overwritten;
+  if (!added && !overwritten) {
+    toastr.info('没有需要同步的档案');
+    return;
+  }
+  closeParseTagsDialog();
+  editingPersonId.value = null;
+  editingDraft.value = '';
+  chatProfiles.value = result.profiles;
+  toastr.success(`已新增 ${added} 个档案，覆盖 ${overwritten} 个，跳过 ${skipped} 个`);
+}
 
 // 切换聊天时重读档案（面板常开状态下聊天切换的同步）
 const onChatChanged = () => {
-  chatProfiles.value = readChatProfiles();
+  chatScope.value = getCurrentChatScope();
+  closeParseTagsDialog();
+  editingPersonId.value = null;
+  refreshChatProfiles();
 };
 eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
 onUnmounted(() => eventSource.removeListener(event_types.CHAT_CHANGED, onChatChanged));

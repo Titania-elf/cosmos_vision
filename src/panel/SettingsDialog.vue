@@ -308,7 +308,7 @@ import SubTabNav from '@/panel/components/SubTabNav.vue';
 import { useSettingsOnboardingTutorial } from '@/panel/composables/useSettingsOnboardingTutorial';
 import { useShellDialogStyle } from '@/composables/useShellDialogStyle';
 import { useSettingsStore } from '@/store/settings';
-import { hasActiveChatProfiles } from '@/services/prompt-profiles/chat-store';
+import { CHAT_PROFILES_CHANGED, hasActiveChatProfiles } from '@/services/prompt-profiles/chat-store';
 import { event_types, eventSource } from '@sillytavern/script';
 import {
   FOCUSED_PARAGRAPH_ELEMENTS_KEY,
@@ -379,7 +379,11 @@ const refreshProfileBadge = () => {
   needsProfileBadge.value = !hasActiveChatProfiles();
 };
 eventSource.on(event_types.CHAT_CHANGED, refreshProfileBadge);
-onUnmounted(() => eventSource.removeListener(event_types.CHAT_CHANGED, refreshProfileBadge));
+window.addEventListener(CHAT_PROFILES_CHANGED, refreshProfileBadge);
+onUnmounted(() => {
+  eventSource.removeListener(event_types.CHAT_CHANGED, refreshProfileBadge);
+  window.removeEventListener(CHAT_PROFILES_CHANGED, refreshProfileBadge);
+});
 
 /** 桌面端手动收起侧栏标记 */
 const railManuallyCollapsed = ref(false);
