@@ -341,4 +341,30 @@ describe('settings store recovery and state management', () => {
     expect(() => store.applyActiveWorkflowJson('{"1":{}}')).not.toThrow();
     expect((extensionSettings.cosmos_vision as { comfyui: unknown }).comfyui).toBeDefined();
   });
+
+  it('fills missing negativeTags on legacy prompt profiles via schema default', () => {
+    extensionSettings.cosmos_vision = {
+      promptProfiles: {
+        profiles: [
+          {
+            id: 'legacy-p1',
+            name: 'Legacy Person',
+            kind: 'character',
+            enabled: true,
+            insertMode: 'keyword',
+            triggerKeywords: ['legacy'],
+            staticTags: '1girl, brown hair',
+            templateEntries: [],
+          },
+        ],
+      },
+    };
+
+    const store = useSettingsStore();
+    const profile = store.settings.promptProfiles.profiles[0];
+
+    expect(profile.name).toBe('Legacy Person');
+    expect(profile.staticTags).toBe('1girl, brown hair');
+    expect(profile.negativeTags).toBe('');
+  });
 });

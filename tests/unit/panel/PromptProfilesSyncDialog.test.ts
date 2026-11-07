@@ -18,7 +18,7 @@ vi.mock('@/services/sillytavern/chats', () => ({
 }));
 
 function person(name: string, kind: 'character' | 'user' = 'character'): PromptPerson {
-  return { id: `${kind}-${name}`, name, kind, enabled: true, insertMode: 'keyword', triggerKeywords: [name], staticTags: 'blue eyes', templateEntries: [] };
+  return { id: `${kind}-${name}`, name, kind, enabled: true, insertMode: 'keyword', triggerKeywords: [name], staticTags: 'blue eyes', negativeTags: 'red eyes', templateEntries: [] };
 }
 let wrapper: VueWrapper;
 const confirm = vi.fn();
@@ -77,6 +77,7 @@ describe('档案同步弹窗', () => {
     await clickSync();
     const [selected, mode, scope] = wrapper.emitted('sync')![0];
     expect((selected as PromptPerson[]).map(item => item.name)).toEqual(['A', 'User']);
+    expect((selected as PromptPerson[]).map(item => item.negativeTags)).toEqual(['red eyes', 'red eyes']);
     expect(mode).toBe('missing');
     expect(scope).toEqual(mocks.scope);
     expect(confirm).not.toHaveBeenCalled();

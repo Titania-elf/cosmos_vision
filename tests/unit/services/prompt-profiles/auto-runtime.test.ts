@@ -324,6 +324,7 @@ describe('auto-runtime service', () => {
       insertMode: 'always',
       triggerKeywords: [],
       staticTags: '1girl, solo',
+      negativeTags: '',
       templateEntries: [
         {
           id: 'entry-1',

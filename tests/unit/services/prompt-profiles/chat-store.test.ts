@@ -91,13 +91,33 @@ describe('readProfilesFromMetadata', () => {
     });
     expect(person).toEqual({
       id: expect.any(String), name: 'Alice', kind: 'character', enabled: true,
-      insertMode: 'keyword', staticTags: '', triggerKeywords: ['Alice', ' Alice '], templateEntries: [],
+      insertMode: 'keyword', staticTags: '', negativeTags: '', triggerKeywords: ['Alice', ' Alice '], templateEntries: [],
     });
     expect(person.id.trim()).not.toBe('');
     expect(uuidv4).toHaveBeenCalledOnce();
     expect(readProfile({ enabled: false, insertMode: 'always', triggerKeywords: {} })).toMatchObject({
       enabled: false, insertMode: 'always', triggerKeywords: [],
     });
+  });
+
+  it.each([undefined, null, false, 1, {}, []])('defaults missing or malformed negativeTags to an empty string: %j', negativeTags => {
+    expect(readProfile({ negativeTags }).negativeTags).toBe('');
+  });
+
+  it('preserves negative tags from other chats and legacy globals through a save/read round trip', () => {
+    const raw = rawProfile({ negativeTags: 'red eyes, short hair' });
+    const sourceMetadata = { [METADATA_KEY]: [raw], other_plugin: { untouched: true } };
+    const [source] = readProfilesFromMetadata(sourceMetadata);
+    expect(source.negativeTags).toBe('red eyes, short hair');
+    expect(readLegacyGlobalProfiles({ profiles: [source] })[0].negativeTags).toBe(source.negativeTags);
+    persistChatProfiles([source]);
+    const [reloaded] = readChatProfiles();
+    expect(reloaded.negativeTags).toBe('red eyes, short hair');
+    reloaded.negativeTags = 'edited negative';
+    persistChatProfiles([reloaded]);
+    expect(readChatProfiles()[0].negativeTags).toBe('edited negative');
+    expect(raw.negativeTags).toBe('red eyes, short hair');
+    expect(sourceMetadata.other_plugin).toEqual({ untouched: true });
   });
 
   it('drops malformed template entries and normalizes valid entries without changing source IDs', () => {

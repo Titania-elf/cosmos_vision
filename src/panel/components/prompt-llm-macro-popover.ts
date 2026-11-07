@@ -3,7 +3,8 @@ import './prompt-llm-macro-popover.css';
 import { PROMPT_LLM_COMPOSITION_TOKEN } from '@/constants/image-composition';
 
 import {
-  PROMPT_LLM_FIXED_TAGS_TOKEN,
+  PROMPT_LLM_FIXED_NEGATIVE_TAGS_TOKEN,
+  PROMPT_LLM_FIXED_POSITIVE_TAGS_TOKEN,
   PROMPT_LLM_FOCUS_PARAGRAPH_TOKEN,
   PROMPT_LLM_HISTORY_TOKEN,
   PROMPT_LLM_PARTICIPANT_TOKEN,
@@ -21,7 +22,8 @@ export const PROMPT_LLM_TOKEN_OPTIONS = [
 
 export const PROMPT_PERSON_TOKEN_OPTIONS = [
   { label: '关键词', token: PROMPT_LLM_TRIGGER_NAMES_TOKEN },
-  { label: '固定 tag', token: PROMPT_LLM_FIXED_TAGS_TOKEN },
+  { label: '固定正面 tag', token: PROMPT_LLM_FIXED_POSITIVE_TAGS_TOKEN },
+  { label: '固定负面 tag', token: PROMPT_LLM_FIXED_NEGATIVE_TAGS_TOKEN },
 ] as const;
 
 export interface MacroPopoverInstance {

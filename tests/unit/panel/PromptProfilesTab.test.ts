@@ -19,22 +19,24 @@ vi.mock('@/services/tavern-helper/prompt-profiles-tags', () => ({
   parsePromptPersonStaticTags: vi.fn(), parsePromptPersonStaticTagsFromText: vi.fn(),
 }));
 vi.mock('@/panel/components/onboarding/mock-person', () => ({ isTutorialMockPersonId: () => false }));
-vi.mock('@/services/prompt-profiles/runtime', () => ({
-  createPromptPerson: vi.fn(), refreshBuiltinPromptPersonTemplateEntries: vi.fn(),
-}));
 // 父页只测试同步事件与编辑持久化；来源选择在弹窗测试中单独覆盖。
 vi.mock('@/panel/components/PromptProfilesSyncDialog.vue', () => ({
   default: { name: 'PromptProfilesSyncDialog', template: '<div />' },
 }));
 
 function person(name: string): PromptPerson {
-  return { id: name, name, kind: 'character', enabled: true, insertMode: 'keyword', triggerKeywords: [name], staticTags: 'old tags', templateEntries: [] };
+  return { id: name, name, kind: 'character', enabled: true, insertMode: 'keyword', triggerKeywords: [name], staticTags: 'old tags', negativeTags: 'old negative', templateEntries: [] };
 }
 let wrapper: VueWrapper;
 function mountTab(): void {
   wrapper = shallowMount(PromptProfilesTab, {
     global: {
-      stubs: { CollapsiblePanelItem: { template: '<section><slot name="title" /><slot /></section>' } },
+      provide: { showConfirm: vi.fn().mockResolvedValue(true) },
+      stubs: {
+        CvMiniButton: { props: ['label'], template: '<button>{{ label }}</button>' },
+        CollapsiblePanelItem: { template: '<section><slot name="title" /><slot /></section>' },
+        Dialog: { props: ['visible'], template: '<section v-if="visible"><slot /><slot name="footer" /></section>' },
+      },
     },
   });
 }
@@ -77,6 +79,31 @@ describe('人物页同步集成', () => {
     expect(wrapper.text()).toContain('New');
   });
 
+  it.each([
+    { draft: 'image tags', showNegative: false },
+    { draft: { positiveTags: 'image tags', negativeTags: 'image negative' }, showNegative: true },
+  ])('图片草稿兼容 WD 字符串与元数据正负对象，并按操作侧写回当前聊天（$showNegative）', async ({ draft, showNegative }) => {
+    mountTab();
+    await wrapper.findAll('button').find(button => button.text() === '从资料解析')!.trigger('click');
+    await wrapper.findAll('button').find(button => button.text().includes('从图片提取'))!.trigger('click');
+    wrapper.findComponent({ name: 'WdTaggerSource' }).vm.$emit('draft', draft);
+    await nextTick();
+    const result = wrapper.findComponent({ name: 'StaticTagsDraftResult' });
+    expect(result.props('showNegative')).toBe(showNegative);
+    expect(result.props('draft')).toEqual({
+      positiveTags: 'image tags', negativeTags: typeof draft === 'string' ? '' : draft.negativeTags,
+    });
+    result.vm.$emit('replace', { positive: 'selected positive' });
+    expect(readChatProfiles()[0]).toMatchObject({ staticTags: 'selected positive', negativeTags: 'old negative' });
+    if (showNegative) {
+      result.vm.$emit('replace', { negative: 'selected negative' });
+      result.vm.$emit('append', { negative: 'extra negative' });
+      expect(readChatProfiles()[0]).toMatchObject({
+        staticTags: 'selected positive', negativeTags: 'selected negative, extra negative',
+      });
+    }
+  });
+
   it('拒绝来源加载时捕获的旧聊天目标，即使聊天 ID 相同', () => {
     mountTab();
     const original = { ...state.scope };
@@ -88,14 +115,16 @@ describe('人物页同步集成', () => {
 
   it('覆盖保留目标 ID 和其他档案，后续编辑同步即时写回', async () => {
     mountTab();
-    const replacement = { ...person('Existing'), id: 'source-id', staticTags: 'new tags' };
+    const replacement = { ...person('Existing'), id: 'source-id', staticTags: 'new tags', negativeTags: 'new negative' };
     wrapper.findComponent({ name: 'PromptProfilesSyncDialog' }).vm.$emit('sync', [replacement], 'overwrite', { ...state.scope });
     await nextTick();
-    expect(readChatProfiles()[0]).toMatchObject({ id: 'Existing', staticTags: 'new tags' });
-    const textarea = wrapper.findComponent({ name: 'CvExpandableTextarea' });
-    textarea.vm.$emit('update:modelValue', 'edited tags');
+    expect(readChatProfiles()[0]).toMatchObject({ id: 'Existing', staticTags: 'new tags', negativeTags: 'new negative' });
+    const textareas = wrapper.findAllComponents({ name: 'CvExpandableTextarea' });
+    textareas[0].vm.$emit('update:modelValue', 'edited tags');
+    textareas[1].vm.$emit('update:modelValue', 'edited negative');
     // flush: sync 防止紧接着切聊天时，将尚未写入的编辑丢失或写入新聊天。
-    expect(readChatProfiles()[0].staticTags).toBe('edited tags');
+    expect(readChatProfiles()[0]).toMatchObject({ staticTags: 'edited tags', negativeTags: 'edited negative' });
+    expect(replacement.negativeTags).toBe('new negative');
     chat_metadata.cosmos_vision_profiles = [person('Next chat')];
     state.scope.chatId = 'next';
     eventSource.emit(event_types.CHAT_CHANGED);

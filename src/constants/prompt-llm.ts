@@ -279,6 +279,7 @@ export interface PromptPerson {
   insertMode: PromptPersonInsertMode;
   triggerKeywords: string[];
   staticTags: string;
+  negativeTags: string;
   templateEntries: PromptPersonTemplateEntry[];
 }
 

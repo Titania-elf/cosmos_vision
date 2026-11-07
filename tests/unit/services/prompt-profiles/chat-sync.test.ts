@@ -22,7 +22,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 function person(overrides: Partial<PromptPerson> = {}): PromptPerson {
   return {
     id: 'source-person', name: 'Alice', kind: 'character', enabled: true, insertMode: 'keyword',
-    triggerKeywords: ['Alice'], staticTags: 'blue eyes',
+    triggerKeywords: ['Alice'], staticTags: 'blue eyes', negativeTags: 'red eyes',
     templateEntries: [{
       id: 'character-worldbook-entry:source-entry', title: 'Worldbook', enabled: true, content: 'source content',
       reference: { worldbookName: 'World', entryUid: 42, characterName: 'Alice' },
@@ -151,6 +151,16 @@ describe('applyChatProfileSync', () => {
     expect(target.staticTags).toBe('old tags');
     expect(source.id).toBe('source-person');
     expect(uuidv4).toHaveBeenCalledOnce();
+  });
+
+  it.each(MODES)('preserves negative tags without sharing mutations with source or target in %s mode', mode => {
+    const source = person({ negativeTags: 'red eyes, short hair' });
+    const target = person({ id: 'target', negativeTags: 'old negative' });
+    const copied = applyChatProfileSync(mode === 'overwrite' ? [target] : [], [source], mode).profiles[0];
+    expect(copied.negativeTags).toBe('red eyes, short hair');
+    copied.negativeTags = 'edited negative';
+    expect(source.negativeTags).toBe('red eyes, short hair');
+    expect(target.negativeTags).toBe('old negative');
   });
 
   it('clears old entries, keywords and references when replacement content is empty', () => {

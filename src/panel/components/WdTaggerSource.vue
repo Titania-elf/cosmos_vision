@@ -1,16 +1,41 @@
 <template>
   <section class="flex flex-col gap-(--cv-space-xl)">
-    <div class="flex flex-wrap gap-(--cv-space-md)">
-      <Button
-        v-for="option in sourceOptions"
-        :key="option.value"
-        :label="option.label"
-        :icon="option.icon"
-        outlined
-        :disabled="option.disabled"
-        class="min-w-[12rem] flex-1"
-        @click="selectSource(option.value)"
-      />
+    <!-- 提取方式二级切换 -->
+    <SelectButton
+      v-model="extractMethod"
+      fluid
+      :options="EXTRACT_METHOD_OPTIONS"
+      option-label="label"
+      option-value="value"
+      :allow-empty="false"
+      aria-label="提取方式"
+    >
+      <template #option="{ option }">
+        <div class="flex items-center justify-center gap-(--cv-space-sm) text-(length:--cv-font-size-base)">
+          <i :class="[option.icon, 'text-(length:--cv-font-size-base)!']" aria-hidden="true" />
+          <span>{{ option.label }}</span>
+        </div>
+      </template>
+    </SelectButton>
+
+    <div class="flex flex-wrap items-center justify-between gap-(--cv-space-sm)">
+      <span class="min-w-0 flex-1 text-(length:--cv-font-size-xs) text-(--cv-on-surface-variant)">
+        可直接使用现有头像
+      </span>
+      <div class="flex shrink-0 gap-(--cv-space-sm)">
+        <Button
+          v-for="option in sourceOptions"
+          :key="option.value"
+          :label="option.label"
+          :icon="option.icon"
+          :title="option.title"
+          outlined
+          size="small"
+          :fluid="false"
+          :disabled="option.disabled"
+          @click="selectSource(option.value)"
+        />
+      </div>
     </div>
 
     <FileUpload
@@ -58,7 +83,7 @@
           title="移除图片"
           @click="clearUpload(clearCallback)"
         >
-          <i class="fa-solid fa-xmark" aria-hidden="true" />
+          <i class="fa-solid fa-xmark text-(length:--cv-font-size-xs)!" aria-hidden="true" />
         </button>
       </template>
       <template #content>
@@ -66,7 +91,8 @@
       </template>
     </FileUpload>
 
-    <div class="mt-(--cv-space-lg) grid grid-cols-2 gap-(--cv-space-xl)">
+    <!-- WD Tagger 模式下显示阈值滑块 -->
+    <div v-if="extractMethod === 'wd-tagger'" class="mt-(--cv-space-lg) grid grid-cols-2 gap-(--cv-space-xl)">
       <div class="cv-field">
         <div class="cv-field-header">
           <span>通用标签阈值</span>
@@ -87,28 +113,43 @@
       </div>
     </div>
 
-    <p class="cv-field-hint">图片会上传至第三方公共 WD Tagger 测试服务；该服务可能排队、限流或临时不可用。</p>
+    <!-- 模式提示说明 -->
+    <p v-if="extractMethod === 'wd-tagger'" class="cv-field-hint">
+      图片会上传至第三方公共 WD Tagger 测试服务；该服务可能排队、限流或临时不可用。
+    </p>
+    <p v-else class="cv-field-hint">
+      支持解析 PNG 格式图片内置的 NovelAI、SD (A1111) 或 ComfyUI 生成元数据，全程在本地解析，不产生网络请求。
+    </p>
 
     <div class="flex flex-wrap justify-end gap-(--cv-space-md)">
       <Button
-        :label="isAnalyzing ? '停止' : hasAnalyzed ? '重新分析' : '分析图片'"
-        :icon="isAnalyzing ? 'fa-solid fa-stop' : 'fa-solid fa-wand-magic-sparkles'"
-        :severity="isAnalyzing ? 'danger' : undefined"
-        :outlined="isAnalyzing"
-        :disabled="!isAnalyzing && !selectedFile"
-        @click="isAnalyzing ? cancel() : analyze()"
+        :label="actionButtonLabel"
+        :icon="actionButtonIcon"
+        :severity="isAnalyzing && extractMethod === 'wd-tagger' ? 'danger' : undefined"
+        :outlined="isAnalyzing && extractMethod === 'wd-tagger'"
+        :disabled="actionButtonDisabled"
+        @click="handleActionClick"
       />
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { formatWdTagDraft } from '@/services/prompt-profiles/static-tags-draft';
+import { extractPromptTagsFromImage } from '@/services/image-metadata/extract-tags';
+import { formatWdTagDraft, type PromptPersonTagsDraft } from '@/services/prompt-profiles/static-tags-draft';
 import { interrogateWdTagger } from '@/services/wd-tagger/client';
 import { getWdAvatarPath, readWdAvatarFile, validateWdImageFile } from '@/services/wd-tagger/image-source';
 import type { WdImageSource } from '@/services/wd-tagger/types';
 
+export type ExtractMethod = 'wd-tagger' | 'image-metadata';
+
 const MAX_IMAGE_FILE_SIZE = 10 * 1024 * 1024;
+
+const EXTRACT_METHOD_OPTIONS = [
+  { label: 'WD Tagger 反推', value: 'wd-tagger' as const, icon: 'fa-solid fa-wand-magic-sparkles' },
+  { label: '读取内置元数据', value: 'image-metadata' as const, icon: 'fa-solid fa-file-code' },
+];
+
 /**
  * FileUpload 局部 PT：自定义 header 面板 + 隐藏默认 content 列表
  * 颜色/圆角已迁全局 fileupload token；此处只做结构
@@ -121,12 +162,18 @@ const fileUploadPt = {
 } as const;
 
 /**
- * 图片反推来源组件属性
+ * 图片反推/元数据提取来源组件属性
  */
 const props = defineProps<{ personKind: 'user' | 'character' }>();
-const emit = defineEmits<{ draft: [draft: string]; error: [message: string]; parsing: [value: boolean] }>();
+const emit = defineEmits<{
+  draft: [draft: PromptPersonTagsDraft | string];
+  error: [message: string];
+  parsing: [value: boolean];
+}>();
+
 const generalThreshold = defineModel<number>('generalThreshold', { required: true });
 const characterThreshold = defineModel<number>('characterThreshold', { required: true });
+const extractMethod = ref<ExtractMethod>('wd-tagger');
 const source = ref<WdImageSource>(props.personKind === 'user' ? 'user-avatar' : 'character-avatar');
 const selectedFile = ref<File | null>(null);
 const previewUrl = ref('');
@@ -137,17 +184,38 @@ let abortController: AbortController | null = null;
 const sourceOptions = computed(() => [
   {
     value: 'user-avatar' as const,
-    label: '使用当前 user 头像',
+    label: 'user',
+    title: '使用当前 user 头像',
     icon: 'fa-solid fa-user',
     disabled: !getWdAvatarPath('user-avatar'),
   },
   {
     value: 'character-avatar' as const,
-    label: '使用当前 char 头像',
+    label: 'char',
+    title: '使用当前 char 头像',
     icon: 'fa-solid fa-user-astronaut',
     disabled: !getWdAvatarPath('character-avatar'),
   },
 ]);
+
+const actionButtonLabel = computed(() => {
+  if (isAnalyzing.value) return extractMethod.value === 'wd-tagger' ? '停止' : '解析中...';
+  return hasAnalyzed.value ? '重新分析' : '分析图片';
+});
+
+const actionButtonIcon = computed(() => {
+  if (isAnalyzing.value) {
+    return extractMethod.value === 'wd-tagger' ? 'fa-solid fa-stop' : 'fa-solid fa-spinner fa-spin';
+  }
+  return 'fa-solid fa-wand-magic-sparkles';
+});
+
+const actionButtonDisabled = computed(() => {
+  if (extractMethod.value === 'wd-tagger') {
+    return !isAnalyzing.value && !selectedFile.value;
+  }
+  return !selectedFile.value || isAnalyzing.value;
+});
 
 watch(
   () => props.personKind,
@@ -155,6 +223,12 @@ watch(
     if (!selectedFile.value) source.value = kind === 'user' ? 'user-avatar' : 'character-avatar';
   },
 );
+
+watch(extractMethod, () => {
+  cancel();
+  hasAnalyzed.value = false;
+});
+
 onBeforeUnmount(cancel);
 
 /**
@@ -217,9 +291,24 @@ function setSelectedFile(file: File): void {
 }
 
 /**
+ * 触发操作按钮对应逻辑（WD Tagger 或本地元数据解析）
+ */
+function handleActionClick(): void {
+  if (extractMethod.value === 'wd-tagger') {
+    if (isAnalyzing.value) {
+      cancel();
+    } else {
+      void analyzeWd();
+    }
+  } else {
+    void analyzeMetadata();
+  }
+}
+
+/**
  * 调用公共 WD Tagger 并提交标签草稿
  */
-async function analyze(): Promise<void> {
+async function analyzeWd(): Promise<void> {
   if (!selectedFile.value || isAnalyzing.value) return;
   abortController = new AbortController();
   setParsing(true);
@@ -234,6 +323,23 @@ async function analyze(): Promise<void> {
     if (!isAbortError(error)) emit('error', readErrorMessage(error));
   } finally {
     abortController = null;
+    setParsing(false);
+  }
+}
+
+/**
+ * 直接解析本地文件内置元数据并提交人物 tag 草稿
+ */
+async function analyzeMetadata(): Promise<void> {
+  if (!selectedFile.value || isAnalyzing.value) return;
+  setParsing(true);
+  try {
+    const draft = await extractPromptTagsFromImage(selectedFile.value);
+    hasAnalyzed.value = true;
+    emit('draft', draft);
+  } catch (error) {
+    emit('error', readErrorMessage(error));
+  } finally {
     setParsing(false);
   }
 }

@@ -6,6 +6,10 @@ import { nextTick } from 'vue';
 
 import OnboardingTutorial from '@/panel/components/onboarding/OnboardingTutorial.vue';
 import type { TutorialStep } from '@/panel/components/onboarding/tutorial-steps';
+import { chat_metadata } from '@sillytavern/script';
+import { cleanupMockPerson, injectMockPerson, isTutorialMockPersonId } from '@/panel/components/onboarding/mock-person';
+import { readChatProfiles } from '@/services/prompt-profiles/chat-store';
+import { createPromptPerson } from '@/services/prompt-profiles/runtime';
 
 const mockSelectionStep: TutorialStep = {
   id: 'source-selection',
@@ -14,6 +18,31 @@ const mockSelectionStep: TutorialStep = {
   scene: { kind: 'selection' },
   target: { selectors: ['body'], missingText: '当前页面未找到图像来源字段，你仍可继续教程。' },
 };
+
+describe('教程人物聊天档案', () => {
+  it('幂等注入正负 tag 示例，清理时保留本聊天已有档案', () => {
+    const original = chat_metadata.cosmos_vision_profiles;
+    try {
+      const existing = createPromptPerson('character', 'Existing');
+      existing.negativeTags = 'existing negative';
+      chat_metadata.cosmos_vision_profiles = [existing];
+      injectMockPerson();
+      injectMockPerson();
+      const profiles = readChatProfiles();
+      expect(profiles).toHaveLength(2);
+      expect(profiles.find(person => isTutorialMockPersonId(person.id))).toMatchObject({
+        staticTags: 'girl, blue eyes, long hair, white dress',
+        negativeTags: 'red eyes, short hair, black dress',
+      });
+      cleanupMockPerson();
+      cleanupMockPerson();
+      expect(readChatProfiles()).toEqual([existing]);
+    } finally {
+      if (original === undefined) delete chat_metadata.cosmos_vision_profiles;
+      else chat_metadata.cosmos_vision_profiles = original;
+    }
+  });
+});
 
 describe('OnboardingTutorial 选择界面与开发者入口', () => {
   beforeEach(() => {

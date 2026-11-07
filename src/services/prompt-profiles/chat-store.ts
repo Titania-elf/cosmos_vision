@@ -99,6 +99,7 @@ function normalizeChatProfile(value: unknown): PromptPerson[] {
         ? Array.from(new Set(record.triggerKeywords.filter((keyword): keyword is string => typeof keyword === 'string' && Boolean(keyword.trim()))))
         : [],
       staticTags: typeof record.staticTags === 'string' ? record.staticTags : '',
+      negativeTags: typeof record.negativeTags === 'string' ? record.negativeTags : '',
       templateEntries: Array.isArray(record.templateEntries)
         ? record.templateEntries.flatMap(normalizeTemplateEntry)
         : [],
