@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/api/generate-image', () => ({ generateImage: vi.fn() }));
+vi.mock('@/api/get-auto-composition', () => ({ getAutoComposition: vi.fn() }));
 vi.mock('@/api/request-prompt', () => ({ requestPrompt: vi.fn() }));
 
 import manifest from '../../../manifest.json';
 import { COSMOS_VISION_API_READY_EVENT, createCosmosVisionApi, installCosmosVisionApi } from '@/api';
 import { generateImage } from '@/api/generate-image';
+import { getAutoComposition } from '@/api/get-auto-composition';
 import { requestPrompt } from '@/api/request-prompt';
 
 describe('api/index', () => {
@@ -19,6 +21,7 @@ describe('api/index', () => {
     expect(api.version).toBe(manifest.version);
     expect(api.requestPrompt).toBe(requestPrompt);
     expect(api.generateImage).toBe(generateImage);
+    expect(api.getAutoComposition).toBe(getAutoComposition);
   });
 
   it('挂载到 window 并派发就绪事件', () => {

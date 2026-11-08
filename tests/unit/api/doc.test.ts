@@ -11,6 +11,7 @@ describe('api/doc', () => {
     expect(API_DOC_MARKDOWN).toContain('cosmos-vision:api-ready');
     expect(API_DOC_MARKDOWN).toContain('requestPrompt');
     expect(API_DOC_MARKDOWN).toContain('generateImage');
+    expect(API_DOC_MARKDOWN).toContain('getAutoComposition');
     expect(API_DOC_MARKDOWN).toContain('window.CosmosVision');
   });
 
@@ -24,6 +25,9 @@ describe('api/doc', () => {
     expect(API_DOC_MARKDOWN).toContain('interface CosmosVisionApi');
     expect(API_DOC_MARKDOWN).toContain('requestPrompt(options: CosmosVisionRequestPromptOptions)');
     expect(API_DOC_MARKDOWN).toContain('generateImage(options: CosmosVisionGenerateImageOptions)');
+    expect(API_DOC_MARKDOWN).toContain('getAutoComposition(): Promise<CosmosVisionGetAutoCompositionResult>');
+    expect(API_DOC_MARKDOWN).toContain('interface CosmosVisionAutoCompositionScheme');
+    expect(API_DOC_MARKDOWN).toContain('interface CosmosVisionGetAutoCompositionResult');
     expect(API_DOC_MARKDOWN).toContain('CosmosVisionStreamPreviewEvent');
     expect(API_DOC_MARKDOWN).toContain('declare global');
     expect(API_DOC_MARKDOWN).toContain('CosmosVision?: CosmosVisionApi');

@@ -13,6 +13,7 @@ vi.mock('@/services/comfyui/api', async importOriginal => ({
 vi.mock('@/services/comfyui/lora-trigger-words', () => ({ resolveActiveComfyUILoraTriggerWords: vi.fn() }));
 
 import { generateImage } from '@/api/generate-image';
+import { getAutoComposition } from '@/api/get-auto-composition';
 import type { GenerateImageOptions } from '@/api/types';
 import type { ImageOrientation } from '@/constants/image-composition';
 import { generateComfyUIImagesFromResolvedRequest } from '@/services/comfyui/api';
@@ -110,6 +111,18 @@ describe.each(['novelai', 'comfyui'] as const)('generateImage auto composition (
     expect(submittedSize(source)).toEqual(store.savedSettings.promptLlm.autoComposition.sizes[orientation]);
     expect(input).toEqual({ positivePrompt: 'cat', orientation });
     expect(JSON.stringify(store.savedSettings)).toBe(originalSettings);
+  });
+
+  it.each(ORIENTATIONS)('applies a queried %s scheme through generateImage', async orientation => {
+    setupSavedSettings(source);
+    const composition = await getAutoComposition();
+    const scheme = composition.schemes.find(item => item.orientation === orientation)!;
+
+    expect(composition.available).toBe(true);
+    const result = await generateImage({ prompts: { positivePrompt: 'cat', orientation: scheme.orientation } });
+
+    expect(result.prompts.orientation).toBe(scheme.orientation);
+    expect(submittedSize(source)).toEqual({ width: scheme.width, height: scheme.height });
   });
 
   it('uses the same final output for prompts and orientation, ignoring earlier and reasoning outputs', async () => {

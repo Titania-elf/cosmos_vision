@@ -33,6 +33,8 @@ interface CosmosVisionApi {
   requestPrompt(options: CosmosVisionRequestPromptOptions): Promise<CosmosVisionRequestPromptResult>;
   /** 请求生图：传入 LLM 原始回复或结构化核心提示词，按插件当前设置生成图片 */
   generateImage(options: CosmosVisionGenerateImageOptions): Promise<CosmosVisionGenerateImageResult>;
+  /** 查询当前图源的可用自动构图方案，不请求 LLM、不生图、不修改设置 */
+  getAutoComposition(): Promise<CosmosVisionGetAutoCompositionResult>;
 }
 
 /** 接口一上下文（调用方自行收集，插件不读 DOM/楼层） */
@@ -137,6 +139,27 @@ interface CosmosVisionResolvedImagePrompts {
   }>;
 }
 
+/** 接口三：当前已保存配置下可选的自动构图方案 */
+interface CosmosVisionAutoCompositionScheme {
+  orientation: 'portrait' | 'landscape' | 'square';
+  label: string;
+  width: number;
+  height: number;
+}
+
+interface CosmosVisionGetAutoCompositionResult {
+  /** 自动构图开关；开启不代表当前配置存在可用方案 */
+  enabled: boolean;
+  /** 当前图源至少存在一个可用方案 */
+  available: boolean;
+  imageSource: 'novelai' | 'comfyui';
+  sizeMode: 'presets' | 'swap';
+  /** 按竖图、横图、方图顺序排列，过滤不可用方向；不可用时为空数组 */
+  schemes: CosmosVisionAutoCompositionScheme[];
+  /** 用户配置的构图规则及当前可选方案，供调用方的提示词请求使用；不可用时为空 */
+  instruction: string;
+}
+
 declare global {
   interface Window {
     CosmosVision?: CosmosVisionApi;
@@ -203,6 +226,45 @@ const result = await window.CosmosVision.generateImage({
 - prompts 为核心提示词语义：会照常拼接用户配置的正负提示词预设、NovelAI vibe、ComfyUI LoRA 触发词，与插件内部生图行为完全一致。
 - 中间回调按图源而异：NovelAI 非流式不触发任何回调；NovelAI 流式触发 onStreamPreview；ComfyUI 触发 onProgress。不关心过程可不传。
 - 角色坐标为 0–1 归一化值，缺省或非法回退中心点 { x: 0.5, y: 0.5 }。
+
+## 接口三：getAutoComposition —— 获取可用自动构图方案
+
+查询当前已保存设置、当前图源下可使用的构图方向与实际解析尺寸。此接口只读取配置，不请求 LLM、不生成图片、不修改用户设置，也不强制开启自动构图。
+
+\`enabled\` 表示用户已开启自动构图；\`available\` 表示当前图源至少存在一个可用方案。\`schemes\` 按竖图、横图、方图顺序返回 \`{ orientation, label, width, height }\`，不可用的方向不会返回。\`sizeMode\` 表示预设尺寸（presets）或按当前尺寸交换方向（swap）。
+
+\`instruction\` 包含用户配置的构图规则、输出约定及当前可选方案，可加入其他插件自己的提示词生成请求，让模型自动选择方向；没有可用方案时为空字符串。本插件的 \`requestPrompt\` 已自动处理构图规则，无需重复加入。
+
+\`\`\`js
+const cv = await getCosmosVision(); // 见上方“时序与获取”
+const composition = await cv.getAutoComposition();
+
+if (composition.available) {
+  // 可展示给用户选择，或交给调用方自己的模型按 composition.instruction 选择。
+  const scheme = composition.schemes.find(item => item.orientation === 'landscape')
+    ?? composition.schemes[0];
+  const result = await cv.generateImage({
+    prompts: {
+      positivePrompt: '2girls, wide shot, ...',
+      negativePrompt: 'lowres, ...',
+      orientation: scheme.orientation, // 使用所选方案，不需要也不能覆盖全局宽高
+    },
+  });
+  // result.imageBlobs 为生成的图片
+} else {
+  // 自动构图关闭，或当前尺寸/ComfyUI 尺寸目标不支持构图；仍可不传 orientation 正常生图。
+  console.info('当前没有可用的自动构图方案');
+}
+\`\`\`
+
+使用说明：
+
+- 仅查询当前图源与 ComfyUI 激活工作流，读取的是已保存配置，不是面板里尚未应用的修改；每次调用都会重新读取。
+- 与 \`generateImage\` 共用构图解析逻辑：NovelAI 尺寸超限、方向尺寸关系非法、swap 模式当前为方图等情况会过滤对应方向。
+- ComfyUI 必须有可写尺寸目标：未指定时仅自动使用唯一目标；多个目标未选择、已选目标失效或工作流无法解析时返回空方案。宽高共用同一写入点时仅返回方图。
+- \`schemes\` 是配置级预览，不检查账号、后端联网或完整工作流能否成功生图。查询后配置改变，或工作流其他运行时绑定覆盖尺寸，后续实际尺寸可能改变；生图时始终以当时配置为准。
+- 返回值为独立数据，修改它不会修改插件设置。方案的 \`width/height\` 仅用于显示；使用时把 \`orientation\` 放到 \`generateImage.prompts\` 中，或放到 \`rawText\` 的最终 JSON 顶层。
+- 自动构图关闭时 \`enabled\` 与 \`available\` 均为 false，\`schemes\` 为空数组、\`instruction\` 为空字符串；开启但无可用方案时 \`enabled\` 为 true、\`available\` 为 false。
 
 ## 并发与取消
 

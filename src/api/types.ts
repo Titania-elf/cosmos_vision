@@ -1,6 +1,7 @@
+import type { ImageSource } from '@/constants/comfyui';
 import type { CharacterPromptItem } from '@/constants/novelai';
 import type { NovelAIStreamPreviewEvent } from '@/services/novelai/stream-api';
-import type { ImageOrientation } from '@/constants/image-composition';
+import type { ImageCompositionSettings, ImageOrientation } from '@/constants/image-composition';
 
 /** 接口一上下文（调用方自行收集，插件不读 DOM/楼层） */
 export interface ApiPromptContext {
@@ -86,9 +87,32 @@ export interface GenerateImageResult {
   prompts: ApiResolvedImagePrompts;
 }
 
+/** 当前图源下可选的自动构图方案；将 orientation 传给 generateImage 即可使用。 */
+export interface ApiAutoCompositionScheme {
+  orientation: ImageOrientation;
+  label: string;
+  width: number;
+  height: number;
+}
+
+/** 接口三返回：当前已保存配置的构图预览，不暴露可变设置或账号信息。 */
+export interface GetAutoCompositionResult {
+  /** 用户是否开启自动构图；开启不代表当前配置存在可用方案。 */
+  enabled: boolean;
+  /** 当前图源至少存在一个可用方案。 */
+  available: boolean;
+  imageSource: ImageSource;
+  sizeMode: ImageCompositionSettings['sizeMode'];
+  /** 按 portrait、landscape、square 顺序排列；不可用的方向会被过滤。 */
+  schemes: ApiAutoCompositionScheme[];
+  /** 可供调用方的提示词生成请求使用的构图规则；不可用时为空字符串。 */
+  instruction: string;
+}
+
 /** 挂载在 window.CosmosVision 上的对外接口 */
 export interface CosmosVisionApi {
   version: string;
   requestPrompt(options: RequestPromptOptions): Promise<RequestPromptResult>;
   generateImage(options: GenerateImageOptions): Promise<GenerateImageResult>;
+  getAutoComposition(): Promise<GetAutoCompositionResult>;
 }

@@ -208,6 +208,18 @@ export function listResolutionTargets(workflow: ComfyUIWorkflow): ResolutionTarg
   return targets.sort((left, right) => left.nodeId.localeCompare(right.nodeId, 'en', { numeric: true }));
 }
 
+/** 同一输入同时承载宽高时，只能应用方形尺寸。 */
+export function isResolutionCompatibleWithTarget(
+  target: ResolutionTarget,
+  size: { width: number; height: number },
+): boolean {
+  return (
+    target.widthPoint.nodeId !== target.heightPoint.nodeId ||
+    target.widthPoint.inputName !== target.heightPoint.inputName ||
+    size.width === size.height
+  );
+}
+
 /**
  * 将组合写入目标指向的输入（就地修改，由调用方克隆提交）
  * @param workflow 工作流

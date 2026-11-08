@@ -5,7 +5,7 @@ import type {
   ImageOrientation,
 } from '@/constants/image-composition';
 import { resolveImageComposition } from '@/services/image-composition';
-import { listResolutionTargets } from '@/services/comfyui/resolution-combos';
+import { isResolutionCompatibleWithTarget, listResolutionTargets } from '@/services/comfyui/resolution-combos';
 import { getActiveComfyUIWorkflowPreset } from '@/services/comfyui/workflow-presets';
 import { parseComfyUIWorkflow } from '@/services/comfyui/parse';
 
@@ -37,6 +37,7 @@ export function resolveComfyUIImageComposition(
         : undefined;
     if (!target) return { settings: requestSettings };
     const composition = resolveImageComposition(compositionSettings, orientation, target);
+    if (composition && !isResolutionCompatibleWithTarget(target, composition)) return { settings: requestSettings };
     return {
       settings: requestSettings,
       ...(composition ? { composition: { ...composition, targetKey: target.key } } : {}),

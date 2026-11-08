@@ -1,4 +1,5 @@
 import { generateImage } from '@/api/generate-image';
+import { getAutoComposition } from '@/api/get-auto-composition';
 import { requestPrompt } from '@/api/request-prompt';
 import type { CosmosVisionApi } from '@/api/types';
 import manifest from '../../manifest.json';
@@ -15,6 +16,7 @@ export function createCosmosVisionApi(): CosmosVisionApi {
     version: manifest.version,
     requestPrompt,
     generateImage,
+    getAutoComposition,
   };
 }
 

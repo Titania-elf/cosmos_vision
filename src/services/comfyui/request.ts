@@ -22,7 +22,11 @@ import { applyModelMatch } from '@/services/comfyui/model-loaders';
 import { applySeedModes } from '@/services/comfyui/seed-runtime';
 import { fetchComfyUIObjectInfo, getCachedComfyUIObjectInfo } from '@/services/comfyui/object-info';
 import { getActiveComfyUIWorkflowJson, getActiveComfyUIWorkflowPreset } from '@/services/comfyui/workflow-presets';
-import { applyResolutionToTarget, listResolutionTargets } from '@/services/comfyui/resolution-combos';
+import {
+  applyResolutionToTarget,
+  isResolutionCompatibleWithTarget,
+  listResolutionTargets,
+} from '@/services/comfyui/resolution-combos';
 import { ensureImageExportNode } from '@/services/comfyui/export-node';
 import type {
   ComfyUILoraNodeSnapshot,
@@ -293,13 +297,7 @@ function applyRequestResolutionOverride(
         : undefined
       : targets.find(item => item.key === override.targetKey);
   if (!target) return undefined;
-  // 同一 Primitive 同时承载宽高时只能写入方形尺寸。
-  if (
-    target.widthPoint.nodeId === target.heightPoint.nodeId &&
-    target.widthPoint.inputName === target.heightPoint.inputName &&
-    override.width !== override.height
-  )
-    return undefined;
+  if (!isResolutionCompatibleWithTarget(target, override)) return undefined;
   return applyResolutionToTarget(workflow, target, override) ? target.key : undefined;
 }
 
